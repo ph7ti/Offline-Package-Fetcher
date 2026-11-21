@@ -89,7 +89,7 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755) // #nosec G703 -- fixed payload name under the user-selected install directory
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func createShortcut(guiPath string) error {
 		strings.ReplaceAll(guiPath, `'`, `''`),
 		strings.ReplaceAll(filepath.Dir(guiPath), `'`, `''`),
 	)
-	return exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).Run()
+	// #nosec G702 -- fixed powershell.exe, single-quote-escaped paths; no shell interpolation\n	return exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).Run()
 }
 
 func main() {
@@ -181,7 +181,7 @@ func main() {
 		os.Exit(1)
 	}
 	payloadDir := filepath.Join(filepath.Dir(exePath), "payload")
-	if err := os.MkdirAll(installDir, 0o755); err != nil {
+	if err := os.MkdirAll(installDir, 0o755); err != nil { // #nosec G703 -- explicit user-selected install directory
 		fmt.Fprintf(os.Stderr, "error: create install folder: %v\n", err)
 		os.Exit(1)
 	}
