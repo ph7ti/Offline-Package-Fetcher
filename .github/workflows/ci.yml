@@ -1,0 +1,297 @@
+# ============================================================================
+# Offline Package Fetcher (OPF) — Continuous Integration
+#
+# Runs on every push / pull request against main:
+#   1. test      — go vet + gofmt + go test on Linux and Windows
+#   2. build     — CGO-free cross-compilation of opf-cli and opf-tui
+#                  (linux/amd64, linux/arm64, windows/amd64, darwin/amd64,
+#                   darwin/arm64)
+#   3. build-gui — Fyne v2.8 desktop GUI for linux/amd64 (requires CGO)
+#   4. security  — gitleaks, gosec, govulncheck and the Go security test suite
+#
+# Third-party actions are pinned to the current stable major versions, checked
+# against the GitHub REST API on 2026-11-21:
+#   actions/checkout@v7, actions/setup-go@v7, actions/upload-artifact@v7,
+#   gitleaks/gitleaks-action@v3.
+# v3 of gitleaks-action runs on Node 24; the Node 20 generation of actions is
+# being removed from GitHub-hosted runners, which is why older majors (e.g.
+# actions/checkout@v4, actions/setup-go@v5, gitleaks-action@v2) are avoided.
+# ============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push/PR update supersedes any in-flight run for the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: every job in this workflow only reads the repository.
+permissions:
+  contents: read
+
+env:
+  # CLI/TUI are pure Go; the GUI job opts back into CGO explicitly.
+  CGO_ENABLED: "0"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 1. Unit tests, vet and gofmt on both supported development hosts.
+  # --------------------------------------------------------------------------
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Download modules (warms module cache)
+        run: go mod download
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt check (gofmt -l . must be empty)
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l .)"
+          if [ -n "${unformatted}" ]; then
+            echo "::error title=gofmt::The following files are not gofmt-formatted:"
+            echo "${unformatted}"
+            echo "Run 'gofmt -w .' and commit the result."
+            exit 1
+          fi
+          echo "OK: every Go file is gofmt-formatted."
+
+      - name: go test
+        run: go test -count=1 ./...
+
+  # --------------------------------------------------------------------------
+  # 2. Release-grade cross-compilation of the CLI and the TUI.
+  #    Pure Go (modernc.org/sqlite), so CGO_ENABLED=0 keeps the binaries
+  #    statically linked and portable.
+  # --------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: [test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Cross-compile opf-cli and opf-tui
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ext=""
+          if [ "${GOOS}" = "windows" ]; then
+            ext=".exe"
+          fi
+          for cmd in opf-cli opf-tui; do
+            out="dist/${cmd}-${GOOS}-${GOARCH}${ext}"
+            echo "==> go build ${out}"
+            go build -trimpath -ldflags "-s -w" -o "${out}" "./cmd/${cmd}"
+          done
+          ls -l dist
+
+      - name: Verify embedded build metadata
+        run: |
+          set -euo pipefail
+          # `awk 'NR==1'` instead of `head -n 1`: head closes the pipe early and
+          # the writer dies with SIGPIPE, which `pipefail` would turn into a
+          # spurious job failure.
+          for binary in dist/*; do
+            go version -m "${binary}" | awk 'NR==1'
+          done
+
+      - name: Upload ${{ matrix.goos }}/${{ matrix.goarch }} binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-cli-tui-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
+  # 3. Fyne v2.8 desktop GUI for linux/amd64.
+  #    Fyne needs a C toolchain plus the OpenGL/X11 (and XKB) development
+  #    headers; the package set below mirrors fyne-io/fyne's own Linux CI
+  #    (libgl1-mesa-dev, xorg-dev, libxkbcommon-dev, libwayland-dev) and is
+  #    required by go-gl/glfw v3.4. On Windows the GUI already builds with
+  #    CGO + MinGW (verified by the Lead).
+  # --------------------------------------------------------------------------
+  build-gui:
+    name: Build GUI (linux/amd64)
+    needs: [test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Install Fyne v2.8 Linux build dependencies
+        run: |
+          sudo apt-get update
+          # Build dependencies: gcc + pkg-config + OpenGL/X11/XKB/Wayland
+          # development headers (mirrors fyne-io/fyne's Linux CI). `file` is only
+          # used by the verification step below.
+          sudo apt-get install --no-install-recommends -y \
+            gcc \
+            pkg-config \
+            file \
+            libgl1-mesa-dev \
+            xorg-dev \
+            libxkbcommon-dev \
+            libwayland-dev
+
+      - name: Build opf-gui (CGO enabled)
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w" -o dist/opf-gui-linux-amd64 ./cmd/opf-gui
+          file dist/opf-gui-linux-amd64
+          go version -m dist/opf-gui-linux-amd64 | awk 'NR==1'
+
+      - name: Upload opf-gui-linux-amd64
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-gui-linux-amd64
+          path: dist/opf-gui-linux-amd64
+          if-no-files-found: error
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
+  # 4. Security scans.
+  #    - gitleaks: fails the build on any committed secret (full history).
+  #    - gosec:    fails on high severity AND high confidence findings only,
+  #                so noisy heuristics do not block the release.
+  #    - govulncheck: INFORMATIONAL ONLY (continue-on-error + warning
+  #                annotation). Dependency CVEs reported for modules pinned in
+  #                go.mod may pre-date v0.1.0 and cannot be fixed by this
+  #                workflow; the result is surfaced as an annotation and in the
+  #                job summary instead of blocking the pipeline.
+  #
+  #    CGO is disabled here so the scanners can type-check every package
+  #    without the GUI/X11 development headers.
+  # --------------------------------------------------------------------------
+  security:
+    name: Security scans
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - name: Checkout (full history for gitleaks)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: gitleaks (secret scan — fails on leaks)
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Repo owner is a personal account, so no GITLEAKS_LICENSE is needed.
+          # Keep the workflow on contents:read — PR comments are disabled.
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+      - name: gosec (high severity / high confidence — fails on findings)
+        run: |
+          set -euo pipefail
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          # Strict gate: any HIGH severity + HIGH confidence finding fails the
+          # job. Acceptable false positives (e.g. the intentional, opt-in
+          # `--repo-insecure-tls` G402 in internal/fetcher/repositories.go) are
+          # waived *at the source* with an auditable `#nosec Gxxx` annotation —
+          # never by lowering the threshold or excluding rules here.
+          "$(go env GOPATH)/bin/gosec" -severity high -confidence high ./...
+
+      - name: govulncheck (informational)
+        id: govulncheck
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+      - name: Annotate govulncheck result
+        if: steps.govulncheck.outcome == 'failure'
+        run: |
+          echo "::warning title=govulncheck::govulncheck reported dependency vulnerabilities. This step is informational for v0.1.0 (continue-on-error) — review the log above and plan dependency upgrades."
+
+      - name: Security test suite (test/security)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The dedicated suite is part of the v0.1.0 release; the guard keeps
+          # the pipeline green on commits where it has not landed yet.
+          if [ -d test/security ] && [ -n "$(find test/security -name '*_test.go' -print -quit)" ]; then
+            go test -count=1 ./test/security/...
+          else
+            echo "::warning title=Security tests::test/security has no Go test files yet — skipping the security suite."
+          fi

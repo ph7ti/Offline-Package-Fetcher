@@ -1,0 +1,234 @@
+# ============================================================================
+# Offline Package Fetcher (OPF) — Release
+#
+# Triggered by pushing a version tag (for example `v0.1.0`). It rebuilds the
+# exact same artifact matrix as the CI workflow, generates SHA256SUMS and
+# publishes (or updates) the GitHub Release for that tag with auto-generated
+# release notes.
+#
+# No repository secrets are required: the default GITHUB_TOKEN with
+# `contents: write` is enough to create the release and upload assets.
+#
+# Third-party actions pinned to the current stable major versions, checked
+# against the GitHub REST API on 2026-11-21:
+#   actions/checkout@v7, actions/setup-go@v7, actions/upload-artifact@v7,
+#   actions/download-artifact@v8, softprops/action-gh-release@v3.
+# ============================================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Never cancel a release that is already publishing; a new tag gets its own run.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Creating the release and uploading assets needs write access; nothing else.
+permissions:
+  contents: write
+
+env:
+  # CLI/TUI are pure Go; the GUI job opts back into CGO explicitly.
+  CGO_ENABLED: "0"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 1. opf-cli + opf-tui for every supported platform.
+  # --------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Cross-compile opf-cli and opf-tui
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ext=""
+          if [ "${GOOS}" = "windows" ]; then
+            ext=".exe"
+          fi
+          for cmd in opf-cli opf-tui; do
+            out="dist/${cmd}-${GOOS}-${GOARCH}${ext}"
+            echo "==> go build ${out}"
+            go build -trimpath -ldflags "-s -w" -o "${out}" "./cmd/${cmd}"
+          done
+          ls -l dist
+
+      - name: Verify embedded build metadata
+        run: |
+          set -euo pipefail
+          # `awk 'NR==1'` instead of `head -n 1`: head closes the pipe early and
+          # the writer dies with SIGPIPE, which `pipefail` would turn into a
+          # spurious job failure.
+          for binary in dist/*; do
+            go version -m "${binary}" | awk 'NR==1'
+          done
+
+      - name: Upload ${{ matrix.goos }}/${{ matrix.goarch }} binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-cli-tui-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
+  # 2. Fyne v2.8 desktop GUI for linux/amd64 (needs CGO + OpenGL/X11 headers).
+  #    Package set mirrors fyne-io/fyne's own Linux CI and satisfies
+  #    go-gl/glfw v3.4 (libxkbcommon / libwayland).
+  # --------------------------------------------------------------------------
+  build-gui:
+    name: Build GUI (linux/amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Install Fyne v2.8 Linux build dependencies
+        run: |
+          sudo apt-get update
+          # Build dependencies: gcc + pkg-config + OpenGL/X11/XKB/Wayland
+          # development headers (mirrors fyne-io/fyne's Linux CI). `file` is only
+          # used by the verification step below.
+          sudo apt-get install --no-install-recommends -y \
+            gcc \
+            pkg-config \
+            file \
+            libgl1-mesa-dev \
+            xorg-dev \
+            libxkbcommon-dev \
+            libwayland-dev
+
+      - name: Build opf-gui (CGO enabled)
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w" -o dist/opf-gui-linux-amd64 ./cmd/opf-gui
+          file dist/opf-gui-linux-amd64
+          go version -m dist/opf-gui-linux-amd64 | awk 'NR==1'
+
+      - name: Upload opf-gui-linux-amd64
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-gui-linux-amd64
+          path: dist/opf-gui-linux-amd64
+          if-no-files-found: error
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
+  # 3. Collect every artifact, checksum them and publish the GitHub Release.
+  #    Runs on ubuntu-latest, so coreutils' sha256sum is always available.
+  # --------------------------------------------------------------------------
+  release:
+    name: Publish GitHub Release
+    needs: [build, build-gui]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: opf-*
+          merge-multiple: true
+
+      - name: Ensure every expected asset is present
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          expected="
+          opf-cli-linux-amd64
+          opf-cli-linux-arm64
+          opf-cli-windows-amd64.exe
+          opf-cli-darwin-amd64
+          opf-cli-darwin-arm64
+          opf-tui-linux-amd64
+          opf-tui-linux-arm64
+          opf-tui-windows-amd64.exe
+          opf-tui-darwin-amd64
+          opf-tui-darwin-arm64
+          opf-gui-linux-amd64
+          "
+          missing=0
+          for asset in ${expected}; do
+            if [ ! -f "${asset}" ]; then
+              echo "::error title=Missing release asset::${asset} was not produced by the build jobs."
+              missing=1
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+          echo "All expected release assets are present."
+
+      - name: Generate SHA256SUMS
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum opf-* > SHA256SUMS
+          echo "----- SHA256SUMS -----"
+          cat SHA256SUMS
+          echo "----------------------"
+          # Self-check: every listed digest must match the file on disk.
+          sha256sum -c SHA256SUMS
+
+      - name: Publish release (attaches binaries + SHA256SUMS)
+        uses: softprops/action-gh-release@v3
+        with:
+          # On a tag push github.ref_name is the tag (e.g. v0.1.0).
+          tag_name: ${{ github.ref_name }}
+          name: OPF ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          make_latest: true
+          files: |
+            dist/opf-cli-*
+            dist/opf-tui-*
+            dist/opf-gui-*
+            dist/SHA256SUMS

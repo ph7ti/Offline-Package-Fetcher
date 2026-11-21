@@ -1,0 +1,100 @@
+# ============================================================================
+# Offline Package Fetcher (OPF) — repository hygiene
+#
+# Only source code, build definitions, tests, documentation and required
+# assets belong in the repository. Everything generated locally stays ignored.
+# ============================================================================
+
+# --- Build outputs and development binaries --------------------------------
+/bin/
+/build/
+/dist/
+/out/
+*.exe
+*.dll
+*.so
+*.so.*
+*.dylib
+*.a
+*.o
+*.obj
+*.lib
+*.syso
+*.res
+*.test
+*.out
+/opf-cli
+/opf-gui
+/opf-tui
+
+# --- Databases and runtime state -------------------------------------------
+# SQLite session database plus WAL/SHM/journal side files.
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# --- Session workspaces and downloaded package artifacts --------------------
+/temp/
+/opf-output/
+/opf-output-*/
+*.deb
+*.rpm
+*.apk
+*.AppImage
+*.snap
+
+# --- Container images and exported archives --------------------------------
+# Docker image exports and package tarballs are release artifacts, not source.
+*.tar
+*.tar.gz
+*.tgz
+*.tar.xz
+*.tar.bz2
+*.zip
+*.7z
+
+# --- Logs, coverage and profiling ------------------------------------------
+*.log
+coverage.out
+coverage.html
+coverage.xml
+*.prof
+*.pprof
+*.trace
+*.cpu
+*.mem
+
+# --- Local configuration and secrets ---------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+.ssh/
+
+# --- Operating system and editor files -------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# --- Go tooling ------------------------------------------------------------
+/go.work
+/go.work.sum
+.golangci-cache/
+.gocache/
+
+# --- Agent / local orchestration state -------------------------------------
+.agent-teams/

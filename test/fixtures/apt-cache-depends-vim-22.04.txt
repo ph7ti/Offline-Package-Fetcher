@@ -1,0 +1,204 @@
+vim
+  Depends: vim-common
+  Depends: vim-runtime
+  Depends: libacl1
+  Depends: libc6
+  Depends: libgpm2
+  Depends: libpython3.10
+  Depends: libselinux1
+  Depends: libsodium23
+  Depends: libtinfo6
+vim-common
+  Depends: xxd
+vim-runtime
+libacl1
+  Depends: libc6
+libc6
+  Depends: libgcc-s1
+  Depends: libcrypt1
+libgpm2
+  Depends: libc6
+libpython3.10
+  Depends: libpython3.10-stdlib
+  Depends: libc6
+  Depends: libexpat1
+  Depends: zlib1g
+libselinux1
+  Depends: libc6
+  Depends: libpcre2-8-0
+libsodium23
+  Depends: libc6
+libtinfo6
+  Depends: libc6
+xxd
+  Depends: libc6
+libgcc-s1
+  Depends: gcc-12-base
+  Depends: libc6
+libcrypt1
+  Depends: libc6
+libpython3.10-stdlib
+  Depends: libpython3.10-minimal
+ |Depends: media-types
+  Depends: mime-support
+  Depends: libbz2-1.0
+  Depends: libc6
+  Depends: libcrypt1
+  Depends: libdb5.3
+  Depends: libffi8
+  Depends: liblzma5
+  Depends: libmpdec3
+  Depends: libncursesw6
+  Depends: libnsl2
+  Depends: libreadline8
+  Depends: libsqlite3-0
+  Depends: libtinfo6
+  Depends: libtirpc3
+  Depends: libuuid1
+libexpat1
+  Depends: libc6
+zlib1g
+  Depends: libc6
+libpcre2-8-0
+  Depends: libc6
+gcc-12-base
+libpython3.10-minimal
+  Depends: libc6
+  Depends: libssl3
+media-types
+mime-support
+  Depends: mailcap
+  Depends: media-types
+libbz2-1.0
+  Depends: libc6
+libdb5.3
+  Depends: libc6
+libffi8
+  Depends: libc6
+liblzma5
+  Depends: libc6
+libmpdec3
+  Depends: libc6
+  Depends: libgcc-s1
+  Depends: libstdc++6
+libncursesw6
+  Depends: libtinfo6
+  Depends: libc6
+libnsl2
+  Depends: libc6
+  Depends: libtirpc3
+libreadline8
+  Depends: readline-common
+  Depends: libc6
+  Depends: libtinfo6
+libsqlite3-0
+  Depends: libc6
+libtirpc3
+  Depends: libc6
+  Depends: libgssapi-krb5-2
+  Depends: libtirpc-common
+libuuid1
+  Depends: libc6
+libssl3
+  Depends: libc6
+ |Depends: debconf
+  Depends: <debconf-2.0>
+    cdebconf
+    debconf
+mailcap
+  Depends: perl
+  Depends: media-types
+libstdc++6
+  Depends: gcc-12-base
+  Depends: libc6
+  Depends: libgcc-s1
+readline-common
+ |Depends: dpkg
+  Depends: install-info
+libgssapi-krb5-2
+  Depends: libc6
+  Depends: libcom-err2
+  Depends: libk5crypto3
+  Depends: libkrb5-3
+  Depends: libkrb5support0
+libtirpc-common
+debconf
+  PreDepends: perl-base
+cdebconf
+  Depends: libc6
+  Depends: libdebian-installer4
+  Depends: libnewt0.52
+  Depends: libselinux1
+  Depends: libslang2
+  Depends: libtextwrap1
+  Depends: debconf
+  Depends: dpkg
+perl
+  PreDepends: dpkg
+  Depends: perl-base
+  Depends: perl-modules-5.34
+  Depends: libperl5.34
+dpkg
+  PreDepends: libbz2-1.0
+  PreDepends: libc6
+  PreDepends: liblzma5
+  PreDepends: libselinux1
+  PreDepends: libzstd1
+  PreDepends: zlib1g
+  Depends: tar
+install-info
+  PreDepends: dpkg
+  Depends: libc6
+libcom-err2
+  Depends: libc6
+libk5crypto3
+  Depends: libc6
+  Depends: libkrb5support0
+libkrb5-3
+  Depends: libc6
+  Depends: libcom-err2
+  Depends: libk5crypto3
+  Depends: libkeyutils1
+  Depends: libkrb5support0
+  Depends: libssl3
+libkrb5support0
+  Depends: libc6
+perl-base
+  PreDepends: libc6
+  PreDepends: libcrypt1
+  PreDepends: dpkg
+libdebian-installer4
+  Depends: libc6
+libnewt0.52
+  Depends: libc6
+  Depends: libslang2
+libslang2
+  Depends: libc6
+libtextwrap1
+  Depends: libc6
+perl-modules-5.34
+  PreDepends: dpkg
+  Depends: perl-base
+libperl5.34
+  Depends: libbz2-1.0
+  Depends: libc6
+  Depends: libcrypt1
+  Depends: libdb5.3
+  Depends: libgdbm-compat4
+  Depends: libgdbm6
+  Depends: zlib1g
+  Depends: perl-modules-5.34
+libzstd1
+  Depends: libc6
+tar
+  PreDepends: libacl1
+  PreDepends: libc6
+  PreDepends: libselinux1
+libkeyutils1
+  Depends: libc6
+libgdbm-compat4
+  Depends: libc6
+  Depends: libgdbm6
+libgdbm6
+  Depends: libc6
+<debconf-2.0>
