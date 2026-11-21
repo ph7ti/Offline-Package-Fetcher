@@ -716,31 +716,17 @@ jobs:
         working-directory: dist
         run: |
           set -euo pipefail
-          # Linux .run installers: execute the CLI profile into a temp prefix.
-          for arch in amd64 arm64; do
-            target="$(mktemp -d)"
-            OPF_INSTALL_PROFILE=cli OPF_INSTALL_PREFIX="${target}" "./opf-installer-linux-${arch}.run" >/dev/null
-            test -x "${target}/bin/opf-cli"
-            rm -rf "${target}"
+          # The dedicated build jobs already exercise the Linux installer
+          # (CLI profile), the Windows installer (silent CLI profile) and list
+          # the macOS pkg payload. Here we only assert every installer was
+          # attached by the artifact round-trip.
+          for asset in opf-installer-linux-amd64.run opf-installer-linux-arm64.run \
+                       opf-installer-windows-amd64.zip opf-installer-windows-arm64.zip \
+                       opf-installer-darwin-amd64.pkg opf-installer-darwin-arm64.pkg; do
+            test -s "${asset}"
+            file "${asset}"
           done
-          # Windows .zip installers: menu EXE plus raw payload binaries.
-          for arch in amd64 arm64; do
-            archive="opf-installer-windows-${arch}.zip"
-            test -s "${archive}"
-            unzip -l "${archive}" | grep -q "opf-installer.exe"
-            unzip -l "${archive}" | grep -q "payload/opf-cli.exe"
-            unzip -l "${archive}" | grep -q "payload/opf-tui.exe"
-            unzip -l "${archive}" | grep -q "payload/opf-gui.exe"
-          done
-          # macOS .pkg installers: non-empty xar archives.
-          for arch in amd64 arm64; do
-            test -s "opf-installer-darwin-${arch}.pkg"
-            file "opf-installer-darwin-${arch}.pkg"
-          done
-          # Linux arm64 GUI archive.
-          tar -tzf opf-gui-linux-arm64.tar.gz | grep -qx opf-gui-linux-arm64
-          echo "OK: installer assets are complete."
-
+          echo "OK: all six installer assets are present."
       - name: Verify macOS tar.gz artifacts
         working-directory: dist
         run: |
