@@ -4,6 +4,22 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-11-21
+
+Packaging correction: 0.2.1 shipped UPX-packed Windows executables, which Cortex XDR blocks.
+Raw Go executables run normally, so Windows now ships raw inside `.zip` archives.
+
+### Changed
+
+- Windows CLI/TUI: the `.exe` is **not UPX-packed**; it is published raw inside
+  `opf-{cli,tui}-windows-amd64.exe.zip` (~6.1/6.4 MB download instead of ~14.8/15.7 MB). The
+  extracted executable runs under Cortex XDR and comparable EDR products.
+- Linux CLI/TUI/GUI keep UPX `--best --lzma`; macOS keeps `.tar.gz` archives.
+- CI/release now package and verify the Windows zip contents; `make package-windows` reproduces
+  the zip locally.
+- Code signing with a trusted certificate remains optional but recommended; it is not required
+  for Cortex XDR to run the extracted Windows binary.
+
 ## [0.2.1] - 2026-11-21
 
 Packaging-only release: the functional Go code is unchanged from 0.2.0; the release assets now use the

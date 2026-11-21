@@ -5,26 +5,24 @@
 #   1. test      — go vet + gofmt + go test on Linux and Windows
 #   2. build     — CGO-free cross-compilation of opf-cli and opf-tui
 #                  (linux/amd64, linux/arm64, windows/amd64, darwin/amd64,
-#                   darwin/arm64), plus UPX compression of the Linux/Windows
-#                   binaries and tar.gz packaging of the macOS binaries
+#                   darwin/arm64), plus UPX compression of the Linux binaries,
+#                   zip packaging of the Windows executables and tar.gz
+#                   packaging of the macOS binaries
 #   3. build-gui — Fyne v2.8 desktop GUI for linux/amd64 (requires CGO),
 #                  compressed with UPX
 #   4. security  — gitleaks, gosec, govulncheck and the Go security test suite
 #
 # Binary-size pipeline: every production build uses `-trimpath -ldflags
 # "-s -w -buildid="` (paths, symbol table, DWARF and the Go build ID are
-# stripped). The Linux and Windows CLI/TUI artifacts and the Linux GUI are then
-# packed with `upx --best --lzma` and verified with `upx -t` *before* they are
-# uploaded, so a broken or rejected pack can never reach an artifact or a
-# release.
+# stripped). The Linux CLI/TUI artifacts and Linux GUI are packed with
+# `upx --best --lzma` and verified with `upx -t` *before* upload.
 #
-# Windows note: packed PE files are still subject to endpoint-protection
-# allow-listing on hosts running Cortex XDR and comparable EDR products. The
-# binaries are packed in the CI runner (where no EDR blocks the build); users
-# may need to allow-list the downloaded .exe.
+# Windows: the raw .exe is deliberately NOT UPX-packed. Cortex XDR and
+# comparable EDR products block packed PE files, but run the raw executable.
+# Compression is provided by publishing each .exe inside a .zip archive, so the
+# extracted binary stays acceptable to the endpoint agent.
 #
-# Darwin: UPX 4.2.2 (the version in Ubuntu's `upx-ucl` package) and UPX 5.3
-# both refuse Mach-O binaries, so darwin/amd64 and darwin/arm64 are packaged
+# Darwin: UPX cannot pack Mach-O, so darwin/amd64 and darwin/arm64 are packaged
 # as .tar.gz archives instead of raw binaries.
 #
 # Third-party actions are pinned to the current stable major versions, checked
@@ -152,13 +150,19 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Install UPX
-        if: matrix.goos != 'darwin'
+        if: matrix.goos == 'linux'
         run: |
           sudo apt-get update
           # upx-ucl is Ubuntu's packaged UPX. `file` is used by the
-          # post-compression format check. darwin entries skip this.
+          # post-compression format check. Windows/darwin entries skip this.
           sudo apt-get install --no-install-recommends -y upx-ucl file
           upx --version | awk 'NR==1'
+
+      - name: Install zip
+        if: matrix.goos == 'windows'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y zip unzip file
 
       - name: Cross-compile opf-cli and opf-tui
         env:
@@ -190,14 +194,14 @@ jobs:
             go version -m "${binary}" | awk 'NR==1'
           done
 
-      - name: Compress Linux and Windows binaries with UPX
-        if: matrix.goos != 'darwin'
+      - name: Compress Linux binaries with UPX
+        if: matrix.goos == 'linux'
         run: |
           set -euo pipefail
           # `--best --lzma` is the strongest UPX mode. `upx -t` verifies each
           # packed file; either command failing fails this job, so a rejected
-          # or corrupted artifact is never uploaded. darwin entries are handled
-          # by the tar.gz step below.
+          # or corrupted artifact is never uploaded. Windows/darwin entries are
+          # handled by the zip/tar.gz steps below.
           for binary in dist/*; do
             echo "==> upx --best --lzma ${binary}"
             upx --best --lzma "${binary}"
@@ -205,6 +209,21 @@ jobs:
           done
           echo "----- compressed artifact formats and sizes -----"
           file dist/*
+          ls -l dist
+
+      - name: Package Windows binaries as zip
+        if: matrix.goos == 'windows'
+        run: |
+          set -euo pipefail
+          # The .exe stays raw (Cortex XDR blocks UPX-packed PE); zip only
+          # reduces the download size. Extract with any zip tool before use.
+          for binary in dist/*.exe; do
+            name="$(basename "${binary}")"
+            echo "==> zip -9 ${name}.zip"
+            zip -9 -j "dist/${name}.zip" "${binary}"
+            unzip -l "dist/${name}.zip" | grep -q "${name}"
+            rm "${binary}"
+          done
           ls -l dist
 
       - name: Package macOS binaries as tar.gz

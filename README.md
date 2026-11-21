@@ -13,7 +13,7 @@
 
 **Download Linux packages and their complete dependency closure for isolated environments — and, when it makes sense, ship them over SSH/SFTP and install them on the target.**
 
-Version **0.2.1** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
+Version **0.2.2** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
 
 ---
 
@@ -84,7 +84,7 @@ Fetch methods:
 
 Recognized architectures: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` and `i386`/`i686` (normalized per family: `amd64` for APT, `x86_64` for RPM, and so on).
 
-Known limits in v0.2.1:
+Known limits in v0.2.2:
 
 - **macOS** is a secondary platform and requires Docker to download packages.
 - **WSL** covers Ubuntu/Debian (APT) only; RPM/APK families require Docker.
@@ -92,7 +92,7 @@ Known limits in v0.2.1:
 - **The GUI** does not build with `CGO_ENABLED=0` (the resulting binary is only a stub that exits with an error).
 - **Additional repositories** do not accept authentication (user/password) in this version.
 - **Interface language:** low-level diagnostics remain in Brazilian Portuguese even when another language is selected: package-manager and isolated-environment output (apt/dpkg, dnf/yum/rpm, apk, Docker/WSL tooling), error causes from the fetch/transfer/install/storage layers, and some internal log lines.
-- **Release packaging:** Windows executables are UPX-packed and may require an endpoint-protection allow-list; macOS binaries are `.tar.gz` archives because UPX cannot pack Mach-O. Build from source for an unpacked executable.
+- **Release packaging:** Windows executables are distributed raw inside `.zip` archives (not UPX-packed), which Cortex XDR and comparable EDR products accept; macOS binaries are `.tar.gz` archives because UPX cannot pack Mach-O. Code signing is recommended for wider trust.
 - **Integration tests** depend on the `integration` build tag and on Docker (plus WSL for the Windows-specific tests).
 
 ## Architecture
@@ -139,8 +139,8 @@ The core depends only on interfaces (`PackageFetcher`, `DependencyResolver`, `Tr
 
 ### A. Release binaries
 
-1. Open [the v0.2.1 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.1).
-2. Download the asset for your platform and the `SHA256SUMS` file published next to it. Each release publishes 12 assets: `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe`, `opf-cli-darwin-amd64.tar.gz`, `opf-cli-darwin-arm64.tar.gz`, the same five variants for `opf-tui`, `opf-gui-linux-amd64` and `SHA256SUMS`. Linux and Windows binaries are UPX-packed; macOS binaries are published inside `.tar.gz` archives (extract with `tar -xzf <asset>.tar.gz`).
+1. Open [the v0.2.2 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.2).
+2. Download the asset for your platform and the `SHA256SUMS` file published next to it. Each release publishes 12 assets: `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe.zip`, `opf-cli-darwin-amd64.tar.gz`, `opf-cli-darwin-arm64.tar.gz`, the same five variants for `opf-tui`, `opf-gui-linux-amd64` and `SHA256SUMS`. Linux binaries are UPX-packed; Windows executables are published **raw inside `.zip` archives** (extract with `Expand-Archive` or any zip tool); macOS binaries are inside `.tar.gz` archives (extract with `tar -xzf <asset>.tar.gz`).
 3. Verify the download:
 
 ```bash
@@ -148,16 +148,16 @@ sha256sum -c SHA256SUMS
 ```
 
 ```powershell
-$line = Get-Content .\SHA256SUMS | Where-Object { $_ -match 'opf-cli-windows-amd64\.exe$' }
+$line = Get-Content .\SHA256SUMS | Where-Object { $_ -match 'opf-cli-windows-amd64\.exe\.zip$' }
 $expected = ($line -split '\s+')[0]
-if ((Get-FileHash .\opf-cli-windows-amd64.exe -Algorithm SHA256).Hash -ne $expected.ToUpper()) {
+if ((Get-FileHash .\opf-cli-windows-amd64.exe.zip -Algorithm SHA256).Hash -ne $expected.ToUpper()) {
     throw 'checksum mismatch'
 }
 ```
 
 The `opf-cli` and `opf-tui` binaries are static (`CGO_ENABLED=0`). `opf-gui` depends on the machine graphics libraries and is therefore built with `CGO_ENABLED=1` (`make build-gui`).
 
-The CLI/TUI and GUI assets are stripped with `-trimpath -ldflags "-s -w -buildid="` and then compressed with UPX (`--best --lzma`): on linux/amd64 the CLI drops from 14.5 MB to 4.7 MB, the TUI from 15.4 MB to 4.9 MB and the GUI from 33.8 MB to 12.3 MB; the Windows executables shrink from ~14.8/15.7 MB to ~4.8/5.0 MB. macOS binaries cannot be packed by UPX and are published as `.tar.gz` archives (~5.6–6.3 MB instead of 13.8–15.5 MB). Packed Windows executables may require an allow-list entry in endpoint-protection products (Cortex XDR and similar); build from source with `make build` when an unpacked executable is required.
+The Linux CLI/TUI and GUI assets are stripped with `-trimpath -ldflags "-s -w -buildid="` and compressed with UPX (`--best --lzma`): on linux/amd64 the CLI drops from 14.5 MB to 4.7 MB, the TUI from 15.4 MB to 4.9 MB and the GUI from 33.8 MB to 12.3 MB. Windows executables are **not UPX-packed** — Cortex XDR blocks packed PE files — and are shipped raw inside `.zip` archives instead (~6.1/6.4 MB download instead of ~14.8/15.7 MB). macOS binaries cannot be packed by UPX and are published as `.tar.gz` archives (~5.6–6.3 MB instead of 13.8–15.5 MB). Code signing with a trusted certificate is recommended for wider trust but is not required for Cortex XDR to run the extracted Windows binary.
 
 ### B. Build from source (Linux and macOS)
 
@@ -373,6 +373,6 @@ OPF was developed with **heavy AI assistance** — code generation, tests, revie
 
 ## Version
 
-**Version 0.2.1** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
+**Version 0.2.2** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
 
 **English** | [Português (BR)](docs/README.pt-BR.md)

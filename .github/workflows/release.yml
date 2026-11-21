@@ -7,20 +7,18 @@
 # release notes.
 #
 # Binary-size pipeline: production builds use `-trimpath -ldflags
-# "-s -w -buildid="`; the Linux CLI/TUI artifacts, the Windows CLI/TUI
-# executables and the Linux GUI are then packed with `upx --best --lzma` and
-# verified with `upx -t` before they are uploaded. The release job re-runs
-# `upx -t` on every packed artifact before it publishes, so a corrupt download
-# can never be released.
+# "-s -w -buildid="`; Linux CLI/TUI and the Linux GUI are packed with
+# `upx --best --lzma` and verified with `upx -t` before they are uploaded.
+# The release job re-runs `upx -t` on every packed Linux artifact before it
+# publishes, so a corrupt download can never be released.
 #
-# Windows note: packed PE files are still subject to endpoint-protection
-# allow-listing on hosts running Cortex XDR and comparable EDR products. The
-# binaries are packed in the CI runner (where no EDR blocks the build); users
-# may need to allow-list the downloaded .exe.
+# Windows: the raw .exe is deliberately NOT UPX-packed. Cortex XDR and
+# comparable EDR products block packed PE files but run the raw executable.
+# Each .exe is published inside a .zip archive, which reduces the download size
+# while keeping the extracted binary acceptable to the endpoint agent.
 #
-# Darwin: UPX 4.2.2 (the version in Ubuntu's `upx-ucl` package) and UPX 5.3
-# both refuse Mach-O binaries, so darwin/amd64 and darwin/arm64 are published
-# as .tar.gz archives instead of raw binaries.
+# Darwin: UPX cannot pack Mach-O, so darwin/amd64 and darwin/arm64 are
+# published as .tar.gz archives instead of raw binaries.
 #
 # No repository secrets are required: the default GITHUB_TOKEN with
 # `contents: write` is enough to create the release and upload assets.
@@ -53,9 +51,10 @@ env:
 jobs:
   # --------------------------------------------------------------------------
   # 1. opf-cli + opf-tui for every supported platform.
-  #    Linux and windows artifacts are UPX-packed and verified before upload;
-  #    darwin artifacts are published as .tar.gz archives because UPX cannot
-  #    pack Mach-O. Metadata stripping applies to all targets.
+  #    Linux binaries are UPX-packed and verified; Windows executables are
+  #    zipped raw (Cortex XDR blocks packed PE); darwin binaries are .tar.gz
+  #    archives because UPX cannot pack Mach-O. Metadata stripping applies to
+  #    all targets.
   # --------------------------------------------------------------------------
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
@@ -89,13 +88,19 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Install UPX
-        if: matrix.goos != 'darwin'
+        if: matrix.goos == 'linux'
         run: |
           sudo apt-get update
           # upx-ucl is Ubuntu's packaged UPX. `file` is used by the
-          # post-compression format check. darwin entries skip this.
+          # post-compression format check. Windows/darwin entries skip this.
           sudo apt-get install --no-install-recommends -y upx-ucl file
           upx --version | awk 'NR==1'
+
+      - name: Install zip
+        if: matrix.goos == 'windows'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y zip unzip file
 
       - name: Cross-compile opf-cli and opf-tui
         env:
@@ -127,14 +132,13 @@ jobs:
             go version -m "${binary}" | awk 'NR==1'
           done
 
-      - name: Compress Linux and Windows binaries with UPX
-        if: matrix.goos != 'darwin'
+      - name: Compress Linux binaries with UPX
+        if: matrix.goos == 'linux'
         run: |
           set -euo pipefail
           # `--best --lzma` is the strongest UPX mode. `upx -t` verifies each
           # packed file; either command failing fails this job, so a rejected
-          # or corrupted artifact is never uploaded. darwin entries are handled
-          # by the tar.gz step below.
+          # or corrupted artifact is never uploaded.
           for binary in dist/*; do
             echo "==> upx --best --lzma ${binary}"
             upx --best --lzma "${binary}"
@@ -142,6 +146,21 @@ jobs:
           done
           echo "----- compressed artifact formats and sizes -----"
           file dist/*
+          ls -l dist
+
+      - name: Package Windows binaries as zip
+        if: matrix.goos == 'windows'
+        run: |
+          set -euo pipefail
+          # The .exe stays raw (Cortex XDR blocks UPX-packed PE); zip only
+          # reduces the download size. Extract with any zip tool before use.
+          for binary in dist/*.exe; do
+            name="$(basename "${binary}")"
+            echo "==> zip -9 ${name}.zip"
+            zip -9 -j "dist/${name}.zip" "${binary}"
+            unzip -l "dist/${name}.zip" | grep -q "${name}"
+            rm "${binary}"
+          done
           ls -l dist
 
       - name: Package macOS binaries as tar.gz
@@ -282,12 +301,12 @@ jobs:
           expected="
           opf-cli-linux-amd64
           opf-cli-linux-arm64
-          opf-cli-windows-amd64.exe
+          opf-cli-windows-amd64.exe.zip
           opf-cli-darwin-amd64.tar.gz
           opf-cli-darwin-arm64.tar.gz
           opf-tui-linux-amd64
           opf-tui-linux-arm64
-          opf-tui-windows-amd64.exe
+          opf-tui-windows-amd64.exe.zip
           opf-tui-darwin-amd64.tar.gz
           opf-tui-darwin-arm64.tar.gz
           opf-gui-linux-amd64
@@ -304,31 +323,43 @@ jobs:
           fi
           echo "All expected release assets are present."
 
-      - name: Install UPX for artifact verification
+      - name: Install UPX and unzip for artifact verification
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y upx-ucl file
+          sudo apt-get install --no-install-recommends -y upx-ucl file unzip
           upx --version | awk 'NR==1'
 
       - name: Verify UPX-packed release artifacts
         working-directory: dist
         run: |
           set -euo pipefail
-          # Re-verify every packed artifact after the artifact round-trip.
-          # Linux and Windows are UPX-packed; darwin is tar.gz instead.
+          # Re-verify every packed Linux artifact after the artifact
+          # round-trip. Windows executables are zipped raw (never UPX-packed);
+          # darwin is tar.gz.
           packed="
           opf-cli-linux-amd64
           opf-cli-linux-arm64
-          opf-cli-windows-amd64.exe
           opf-tui-linux-amd64
           opf-tui-linux-arm64
-          opf-tui-windows-amd64.exe
           opf-gui-linux-amd64
           "
           for binary in ${packed}; do
             upx -t "${binary}"
           done
           file opf-gui-linux-amd64
+
+      - name: Verify Windows zip artifacts
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          # The Windows .exe is intentionally raw; the zip only compresses the
+          # download. Verify both archives contain the expected executable.
+          for archive in opf-cli-windows-amd64.exe.zip opf-tui-windows-amd64.exe.zip; do
+            test -s "${archive}"
+            expected="$(basename "${archive}" .zip)"
+            unzip -l "${archive}" | grep -q "${expected}"
+          done
+          echo "OK: Windows zip archives contain the raw executables."
 
       - name: Verify macOS tar.gz artifacts
         working-directory: dist
