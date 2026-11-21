@@ -13,7 +13,7 @@
 
 **Baixe pacotes Linux e o conjunto completo de dependências para ambientes isolados — e, quando fizer sentido, transfira por SSH/SFTP e instale no destino.**
 
-Versão **0.2.2** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
+Versão **0.2.3** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
 
 ---
 
@@ -84,7 +84,7 @@ Métodos de fetch:
 
 Arquiteturas reconhecidas: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` e `i386`/`i686` (normalizadas por família: `amd64` no APT, `x86_64` no RPM, entre outras).
 
-Limites conhecidos da v0.2.2:
+Limites conhecidos da v0.2.3:
 
 - **macOS** é plataforma secundária e requer Docker para baixar pacotes.
 - **WSL** atende apenas Ubuntu/Debian (APT); famílias RPM/APK exigem Docker.
@@ -139,8 +139,8 @@ O núcleo depende apenas de interfaces (`PackageFetcher`, `DependencyResolver`, 
 
 ### A. Binários da release
 
-1. Abra [a página da release v0.2.2](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.2).
-2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto. Cada release publica 12 ativos: `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe.zip`, `opf-cli-darwin-amd64.tar.gz`, `opf-cli-darwin-arm64.tar.gz`, as mesmas cinco variantes de `opf-tui`, `opf-gui-linux-amd64` e `SHA256SUMS`. Binários Linux usam UPX; executáveis Windows são publicados **brutos dentro de `.zip`** (extraia com `Expand-Archive` ou qualquer ferramenta zip); binários macOS ficam em `.tar.gz` (extraia com `tar -xzf <ativo>.tar.gz`).
+1. Abra [a página da release v0.2.3](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.3).
+2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto. Cada release publica 15 ativos: `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe.zip`, `opf-cli-darwin-amd64.tar.gz`, `opf-cli-darwin-arm64.tar.gz`, as mesmas cinco variantes de `opf-tui`, `opf-gui-linux-amd64`, `opf-gui-windows-amd64.exe.zip`, `opf-gui-darwin-amd64.tar.gz`, `opf-gui-darwin-arm64.tar.gz` e `SHA256SUMS`. Binários Linux usam UPX; executáveis Windows são publicados **brutos dentro de `.zip`** (extraia com `Expand-Archive` ou qualquer ferramenta zip); binários macOS ficam em `.tar.gz` (extraia com `tar -xzf <ativo>.tar.gz`).
 3. Confira a integridade do download:
 
 ```bash
@@ -157,7 +157,7 @@ if ((Get-FileHash .\opf-cli-windows-amd64.exe.zip -Algorithm SHA256).Hash -ne $e
 
 Os binários `opf-cli` e `opf-tui` são estáticos (`CGO_ENABLED=0`). O `opf-gui` depende das bibliotecas gráficas da máquina, por isso é compilado com `CGO_ENABLED=1` (`make build-gui`).
 
-Os ativos Linux de CLI/TUI e GUI recebem strip com `-trimpath -ldflags "-s -w -buildid="` e são comprimidos com UPX (`--best --lzma`): no linux/amd64, o CLI cai de 14,5 MB para 4,7 MB, a TUI de 15,4 MB para 4,9 MB e a GUI de 33,8 MB para 12,3 MB. Executáveis Windows **não usam UPX** — o Cortex XDR bloqueia PE empacotado — e são publicados brutos dentro de `.zip` (~6,1/6,4 MB de download em vez de ~14,8/15,7 MB). Binários macOS não podem ser empacotados pelo UPX e são publicados como `.tar.gz` (~5,6–6,3 MB em vez de 13,8–15,5 MB). Assinatura de código com certificado confiável é recomendada para ampliar a confiança, mas não é necessária para o Cortex XDR executar o binário Windows extraído.
+Os ativos Linux de CLI/TUI e GUI recebem strip com `-trimpath -ldflags "-s -w -buildid="` e são comprimidos com UPX (`--best --lzma`): no linux/amd64, o CLI cai de 14,5 MB para 4,7 MB, a TUI de 15,4 MB para 4,9 MB e a GUI de 33,8 MB para 12,3 MB. Executáveis Windows **não usam UPX** — o Cortex XDR bloqueia PE empacotado — e são publicados brutos dentro de `.zip` (~6,1/6,4 MB para CLI/TUI e ~15,6 MB para a GUI). Binários macOS não podem ser empacotados pelo UPX e são publicados como `.tar.gz` (~5,6–6,3 MB em vez de 13,8–15,5 MB). Assinatura de código com certificado confiável é recomendada para ampliar a confiança, mas não é necessária para o Cortex XDR executar o binário Windows extraído.
 
 ### B. Compilar do código (Linux e macOS)
 
@@ -363,6 +363,6 @@ O OPF foi desenvolvido com **apoio intensivo de ferramentas de IA** — geraçã
 
 ## Versão
 
-**Versão 0.2.2** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
+**Versão 0.2.3** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
 
 [English](../README.md) | **Português (BR)**

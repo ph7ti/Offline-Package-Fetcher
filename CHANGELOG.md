@@ -4,6 +4,35 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-11-21
+
+Desktop GUI for every supported platform and curated release notes.
+
+### Added
+
+- **Windows GUI** (`opf-gui-windows-amd64.exe.zip`), cross-compiled with
+  MinGW-w64 and published as a raw `.exe` inside a `.zip`.
+- **macOS GUI** for Intel (`opf-gui-darwin-amd64.tar.gz`) and Apple Silicon
+  (`opf-gui-darwin-arm64.tar.gz`), built natively on macOS runners.
+- Curated, bilingual release notes for every version under
+  `.github/release-notes/`; existing release pages are synced by a dedicated
+  workflow and new tags use the curated body.
+- Fifteen release assets: CLI/TUI (Linux, Windows, macOS), GUI (Linux, Windows,
+  macOS Intel/Apple Silicon) and `SHA256SUMS`.
+
+### Changed
+
+- CI and release workflows build and verify GUI artifacts for Linux, Windows
+  and macOS (previously only Linux).
+- Windows GUI follows the CLI/TUI Windows policy: raw `.exe` inside `.zip`,
+  no UPX (Cortex XDR blocks packed PE); macOS GUI is `.tar.gz`; Linux GUI is
+  UPX-packed.
+
+### Notes
+
+- The functional core, CLI and TUI are unchanged from v0.2.2; this release adds
+  the missing GUI artifacts and the release-note pages.
+
 ## [0.2.2] - 2026-11-21
 
 Packaging correction: 0.2.1 shipped UPX-packed Windows executables, which Cortex XDR blocks.

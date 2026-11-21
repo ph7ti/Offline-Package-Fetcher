@@ -1,0 +1,51 @@
+# ============================================================================
+# Offline Package Fetcher (OPF) — sync curated release notes
+#
+# The release workflow uses .github/release-notes/<tag>.md as the release body
+# for new tags. This workflow keeps the notes of already-published releases in
+# sync when a notes file changes (for example when correcting a previous
+# version's notes).
+#
+# It is idempotent: tags without a matching GitHub Release are skipped.
+# ============================================================================
+name: Sync release notes
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/release-notes/**"
+      - ".github/workflows/release-notes.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Update existing release bodies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Update release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for file in .github/release-notes/v*.md; do
+            [ -f "${file}" ] || continue
+            tag="$(basename "${file}" .md)"
+            if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+              echo "==> updating ${tag}"
+              gh release edit "${tag}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --notes-file "${file}"
+            else
+              echo "==> ${tag}: no release yet, skipped"
+            fi
+          done

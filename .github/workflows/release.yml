@@ -211,13 +211,12 @@ jobs:
           retention-days: 7
 
   # --------------------------------------------------------------------------
-  # 2. Fyne v2.8 desktop GUI for linux/amd64 (needs CGO + OpenGL/X11 headers).
-  #    Package set mirrors fyne-io/fyne's own Linux CI and satisfies
-  #    go-gl/glfw v3.4 (libxkbcommon / libwayland). The ELF binary is packed
-  #    with UPX and verified with `upx -t` before upload.
+  # 2. Fyne v2.8 desktop GUI for linux/amd64 and windows/amd64.
+  #    The Linux GUI is UPX-packed; the Windows GUI is cross-compiled with
+  #    MinGW-w64 and published raw inside a .zip (Cortex XDR blocks packed PE).
   # --------------------------------------------------------------------------
   build-gui:
-    name: Build GUI (linux/amd64)
+    name: Build GUI (linux + windows)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -235,23 +234,14 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      - name: Install Fyne v2.8 Linux build dependencies
+      - name: Install Fyne v2.8 and cross-build dependencies
         run: |
           sudo apt-get update
-          # Build dependencies: gcc + pkg-config + OpenGL/X11/XKB/Wayland
-          # development headers (mirrors fyne-io/fyne's Linux CI). `file` and
-          # `upx-ucl` are only used by the compression/verification step below.
           sudo apt-get install --no-install-recommends -y \
-            gcc \
-            pkg-config \
-            file \
-            upx-ucl \
-            libgl1-mesa-dev \
-            xorg-dev \
-            libxkbcommon-dev \
-            libwayland-dev
+            gcc pkg-config file upx-ucl zip unzip gcc-mingw-w64-x86-64 \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev
 
-      - name: Build opf-gui (CGO enabled)
+      - name: Build opf-gui for Linux (CGO enabled)
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -259,21 +249,91 @@ jobs:
           file dist/opf-gui-linux-amd64
           go version -m dist/opf-gui-linux-amd64 | awk 'NR==1'
 
-      - name: Compress opf-gui with UPX
+      - name: Build opf-gui for Windows (MinGW cross-compile)
+        run: |
+          set -euo pipefail
+          GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
+            go build -trimpath -ldflags "-s -w -buildid= -H windowsgui" \
+            -o dist/opf-gui-windows-amd64.exe ./cmd/opf-gui
+          file dist/opf-gui-windows-amd64.exe
+          go version -m dist/opf-gui-windows-amd64.exe | awk 'NR==1'
+          zip -9 -j dist/opf-gui-windows-amd64.exe.zip dist/opf-gui-windows-amd64.exe
+          unzip -l dist/opf-gui-windows-amd64.exe.zip | grep -q opf-gui-windows-amd64.exe
+          rm dist/opf-gui-windows-amd64.exe
+          ls -l dist
+
+      - name: Compress Linux GUI with UPX
         run: |
           set -euo pipefail
           upx --best --lzma dist/opf-gui-linux-amd64
           upx -t dist/opf-gui-linux-amd64
-          # No display is available on the runner, so `upx -t` plus a format
-          # check is the GUI verification (see the workflow header).
           file dist/opf-gui-linux-amd64
           ls -l dist/opf-gui-linux-amd64
 
-      - name: Upload opf-gui-linux-amd64
+      - name: Upload GUI artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: opf-gui-linux-amd64
-          path: dist/opf-gui-linux-amd64
+          name: opf-gui-linux-windows
+          path: |
+            dist/opf-gui-linux-amd64
+            dist/opf-gui-windows-amd64.exe.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
+  # 2b. Fyne v2.8 desktop GUI for macOS (native Intel/Apple Silicon builds,
+  #     published as .tar.gz because UPX cannot pack Mach-O).
+  # --------------------------------------------------------------------------
+  build-gui-darwin:
+    name: Build GUI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            goarch: amd64
+          - os: macos-14
+            goarch: arm64
+    env:
+      CGO_ENABLED: "1"
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Build opf-gui for macOS
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -buildid=" -o "dist/opf-gui-darwin-${GOARCH}" ./cmd/opf-gui
+          file "dist/opf-gui-darwin-${GOARCH}"
+          go version -m "dist/opf-gui-darwin-${GOARCH}" | awk 'NR==1'
+
+      - name: Package macOS GUI as tar.gz
+        run: |
+          set -euo pipefail
+          name="opf-gui-darwin-${GOARCH}"
+          tar -czf "dist/${name}.tar.gz" -C dist "${name}"
+          tar -tzf "dist/${name}.tar.gz" | grep -qx "${name}"
+          rm "dist/${name}"
+          ls -l dist
+
+      - name: Upload macOS GUI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-gui-darwin-${{ matrix.goarch }}
+          path: dist/*.tar.gz
           if-no-files-found: error
           retention-days: 7
 
@@ -283,10 +343,15 @@ jobs:
   # --------------------------------------------------------------------------
   release:
     name: Publish GitHub Release
-    needs: [build, build-gui]
+    needs: [build, build-gui, build-gui-darwin]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Checkout (release notes)
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v8
         with:
@@ -310,6 +375,9 @@ jobs:
           opf-tui-darwin-amd64.tar.gz
           opf-tui-darwin-arm64.tar.gz
           opf-gui-linux-amd64
+          opf-gui-windows-amd64.exe.zip
+          opf-gui-darwin-amd64.tar.gz
+          opf-gui-darwin-arm64.tar.gz
           "
           missing=0
           for asset in ${expected}; do
@@ -354,7 +422,7 @@ jobs:
           set -euo pipefail
           # The Windows .exe is intentionally raw; the zip only compresses the
           # download. Verify both archives contain the expected executable.
-          for archive in opf-cli-windows-amd64.exe.zip opf-tui-windows-amd64.exe.zip; do
+          for archive in opf-cli-windows-amd64.exe.zip opf-tui-windows-amd64.exe.zip opf-gui-windows-amd64.exe.zip; do
             test -s "${archive}"
             expected="$(basename "${archive}" .zip)"
             unzip -l "${archive}" | grep -q "${expected}"
@@ -371,7 +439,9 @@ jobs:
             opf-cli-darwin-amd64.tar.gz \
             opf-cli-darwin-arm64.tar.gz \
             opf-tui-darwin-amd64.tar.gz \
-            opf-tui-darwin-arm64.tar.gz; do
+            opf-tui-darwin-arm64.tar.gz \
+            opf-gui-darwin-amd64.tar.gz \
+            opf-gui-darwin-arm64.tar.gz; do
             test -s "${archive}"
             expected="$(basename "${archive}" .tar.gz)"
             tar -tzf "${archive}" | grep -qx "${expected}"
@@ -421,7 +491,8 @@ jobs:
           # On a tag push github.ref_name is the tag (e.g. v0.1.0).
           tag_name: ${{ github.ref_name }}
           name: OPF ${{ github.ref_name }}
-          generate_release_notes: true
+          # Curated, bilingual release notes maintained in the repository.
+          body_path: .github/release-notes/${{ github.ref_name }}.md
           fail_on_unmatched_files: true
           make_latest: true
           files: |
