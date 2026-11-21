@@ -4,6 +4,22 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-11-21
+
+GUI SQLite path fix.
+
+### Fixed
+
+- The GUI created its SQLite database next to the process working directory.
+  When launched from a read-only folder (for example a temporary extraction
+  directory), SQLite failed and the UI showed **SQLite indisponível**. The GUI
+  now defaults to `<UserConfigDir>/opf/opf.db` (on Windows,
+  `%AppData%\opf\opf.db`) and `<home>/OPF` for output.
+- If a database path configured in **Configurações Globais** cannot be opened,
+  the GUI falls back to the per-user default and shows a warning instead of
+  staying unusable.
+- Added regression tests for the default paths and for the fallback.
+
 ## [0.2.3] - 2026-11-21
 
 Desktop GUI for every supported platform and curated release notes.

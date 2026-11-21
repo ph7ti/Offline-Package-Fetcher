@@ -48,6 +48,27 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "opf", "config.json"), nil
 }
 
+// DefaultDatabasePath is the GUI's writable default for the SQLite history.
+// It deliberately does not depend on the process working directory: the GUI
+// may be launched from a read-only folder (for example a temporary extraction
+// directory), where creating opf.db fails.
+func DefaultDatabasePath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("resolver diretório de dados: %w", err)
+	}
+	return filepath.Join(dir, "opf", "opf.db"), nil
+}
+
+// DefaultOutputDir is the GUI's writable default for downloaded artifacts.
+func DefaultOutputDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolver diretório do usuário: %w", err)
+	}
+	return filepath.Join(home, "OPF"), nil
+}
+
 func Load(path string) (Settings, error) {
 	if path == "" {
 		var err error

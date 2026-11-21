@@ -13,7 +13,7 @@
 
 **Download Linux packages and their complete dependency closure for isolated environments — and, when it makes sense, ship them over SSH/SFTP and install them on the target.**
 
-Version **0.2.3** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
+Version **0.2.4** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
 
 ---
 
@@ -84,7 +84,7 @@ Fetch methods:
 
 Recognized architectures: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` and `i386`/`i686` (normalized per family: `amd64` for APT, `x86_64` for RPM, and so on).
 
-Known limits in v0.2.3:
+Known limits in v0.2.4:
 
 - **macOS** is a secondary platform and requires Docker to download packages.
 - **WSL** covers Ubuntu/Debian (APT) only; RPM/APK families require Docker.
@@ -139,7 +139,7 @@ The core depends only on interfaces (`PackageFetcher`, `DependencyResolver`, `Tr
 
 ### A. Release binaries
 
-1. Open [the v0.2.3 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.3).
+1. Open [the v0.2.4 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.4).
 2. Download the asset for your platform and the `SHA256SUMS` file published next to it. Each release publishes 15 assets: `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe.zip`, `opf-cli-darwin-amd64.tar.gz`, `opf-cli-darwin-arm64.tar.gz`, the same five variants for `opf-tui`, `opf-gui-linux-amd64`, `opf-gui-windows-amd64.exe.zip`, `opf-gui-darwin-amd64.tar.gz`, `opf-gui-darwin-arm64.tar.gz` and `SHA256SUMS`. Linux binaries are UPX-packed; Windows executables are published **raw inside `.zip` archives** (extract with `Expand-Archive` or any zip tool); macOS binaries are inside `.tar.gz` archives (extract with `tar -xzf <asset>.tar.gz`).
 3. Verify the download:
 
@@ -260,7 +260,7 @@ opf-cli --target alpine:3.20 --arch x86_64 --pkg curl \
   --export-markdown ./opf-output/report.md
 ```
 
-The default output directory is `./opf-output`, the default database is `./opf.db` and the default remote directory is `/tmp/opf-sessao-<id>`. Every artifact and the `SHA256SUMS` manifest land in `./opf-output/sessao-<id>/`.
+The CLI/TUI default output directory is `./opf-output`, the default database is `./opf.db` and the default remote directory is `/tmp/opf-sessao-<id>`. Every artifact and the `SHA256SUMS` manifest land in `./opf-output/sessao-<id>/`. The **GUI** uses per-user paths instead — SQLite at `<UserConfigDir>/opf/opf.db` (for example `%AppData%\opf\opf.db` on Windows) and output at `~/OPF` — so it works when launched from a read-only folder; a configured database path that cannot be opened falls back to the per-user default with a warning.
 
 ## GUI and TUI
 
@@ -373,6 +373,6 @@ OPF was developed with **heavy AI assistance** — code generation, tests, revie
 
 ## Version
 
-**Version 0.2.3** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
+**Version 0.2.4** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
 
 **English** | [Português (BR)](docs/README.pt-BR.md)

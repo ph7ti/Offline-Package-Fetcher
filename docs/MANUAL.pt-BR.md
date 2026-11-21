@@ -1,6 +1,6 @@
 [English](MANUAL.md) | **Português (BR)**
 
-# Manual do Usuário — Offline Package Fetcher (OPF) v0.2.3
+# Manual do Usuário — Offline Package Fetcher (OPF) v0.2.4
 
 Este manual é a referência operacional do OPF: descreve cada tela, cada flag, o pipeline de 13 etapas, o banco SQLite, os relatórios, o Syslog e os procedimentos de diagnóstico. Para uma visão geral do projeto, comece pelo [README em português](README.pt-BR.md).
 
@@ -40,7 +40,7 @@ O OPF **faz**:
 - instalar no destino após confirmação explícita;
 - registrar tudo em SQLite e exportar relatórios JSON/Markdown, além de enviar eventos a um Syslog externo.
 
-O OPF **não faz** (v0.2.3):
+O OPF **não faz** (v0.2.4):
 
 - configurar repositórios no servidor de destino;
 - autenticar em repositórios privados com usuário/senha;
@@ -100,7 +100,7 @@ Observações:
 
 ### 4.1 Binários da release
 
-1. Acesse a página da release `v0.2.3`.
+1. Acesse a página da release `v0.2.4`.
 2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto.
 3. Verifique o hash:
 
@@ -593,7 +593,7 @@ Precedência: `--lang` > `OPF_LANG` > sistema operacional. Os apelidos `pt` e `p
 
 O idioma se aplica à ajuda/uso das flags, mensagens de erro, progresso no console, nomes e mensagens das etapas do pipeline e rótulos do relatório Markdown; a GUI e a TUI também traduzem suas strings visíveis (ver [6. GUI passo a passo](#6-gui-passo-a-passo) e [7. TUI passo a passo](#7-tui-passo-a-passo)). `-h`/`--help` imprime a referência no idioma ativo e sai com código `0`.
 
-Limitação na 0.2.3: os diagnósticos de baixo nível permanecem em português do Brasil independentemente do idioma selecionado. Isso inclui a saída dos gerenciadores de pacotes e do ambiente isolado (apt/dpkg, dnf/yum/rpm, apk, ferramentas Docker/WSL), as causas de erro emitidas pelas camadas de fetch, transferência, instalação, resolução, inspeção, armazenamento, configuração e aplicação, e parte das linhas de log interna (slog).
+Limitação na 0.2.4: os diagnósticos de baixo nível permanecem em português do Brasil independentemente do idioma selecionado. Isso inclui a saída dos gerenciadores de pacotes e do ambiente isolado (apt/dpkg, dnf/yum/rpm, apk, ferramentas Docker/WSL), as causas de erro emitidas pelas camadas de fetch, transferência, instalação, resolução, inspeção, armazenamento, configuração e aplicação, e parte das linhas de log interna (slog).
 
 ## 9. Detecção remota do alvo
 
@@ -761,7 +761,7 @@ opf-cli --target ubuntu:22.04 --arch amd64 --pkg mytool \
 
 - A lista é **aditiva**: repositórios oficiais continuam habilitados; não há pin/priority.
 - No WSL (ambiente persistente), os arquivos usam prefixo de sessão e são removidos no cleanup; no Docker o contêiner é efêmero.
-- Nenhuma credencial de repositório é aceita ou armazenada na v0.2.3.
+- Nenhuma credencial de repositório é aceita ou armazenada na v0.2.4.
 - Chave e CA são material público e podem aparecer em `config_json` (metadados), mas nunca em relatórios como segredo.
 - Em retomadas, a lista é repovoada; se a chave/CA local sumiu, o erro cita o repositório afetado.
 
@@ -853,7 +853,7 @@ Efeitos:
 
 ### 13.3 Retomada por checkpoint
 
-A retomada existe na **GUI** (botão **Retomar**/ação **Continuar**) e na **TUI** (`r` no histórico / **Continuar sessão**). A CLI da v0.2.3 não expõe retomada.
+A retomada existe na **GUI** (botão **Retomar**/ação **Continuar**) e na **TUI** (`r` no histórico / **Continuar sessão**). A CLI da v0.2.4 não expõe retomada.
 
 Etapa segura calculada a partir de `etapas_sessao`:
 
@@ -880,7 +880,7 @@ Regras adicionais:
 
 ## 14. Banco de dados SQLite
 
-O banco padrão é `./opf.db` (`--db` para alterar; a GUI/TUI permitem configurar em **Configurações Globais**). O driver é `modernc.org/sqlite` (Go puro), com `journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000` e uma única conexão aberta.
+O banco padrão da CLI/TUI é `./opf.db` (`--db` para alterar). A **GUI** usa por padrão `<UserConfigDir>/opf/opf.db` (no Windows, `%AppData%\opf\opf.db`; no Linux/macOS, o diretório de configuração do usuário) e `<home>/OPF` para saída, sem depender do diretório de trabalho. Um caminho configurado em **Configurações Globais** é usado quando pode ser aberto; se não puder, a GUI recorre ao padrão por usuário e exibe um aviso. O driver é `modernc.org/sqlite` (Go puro), com `journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000` e uma única conexão aberta.
 
 ### 14.1 Tabelas
 
@@ -989,7 +989,7 @@ Arquivos são gravados com permissão `0600`; diretórios intermediários são c
 | `usuário remoto não é root; habilite “Usar sudo” ...` | GUI/TUI sem sudo para conta comum | marque **Usar sudo** e informe a senha |
 | `--yes exige --install` / `--sudo exige --install` / `--install exige --ssh-host` | combinação de flags inconsistente | inclua as flags exigidas e informe `--ssh-host`/`--ssh-user` |
 | `nenhum artefato retornado` | resolução vazia | valide o nome do pacote e a conectividade do ambiente |
-| `SQLite indisponível` | caminho inválido/sem permissão | ajuste o caminho em **Configurações Globais** ou `--db` |
+| `SQLite indisponível` | caminho do banco inválido, somente leitura ou removido | a GUI recorre automaticamente a `<UserConfigDir>/opf/opf.db`; caso contrário, ajuste o caminho em **Configurações Globais** ou `--db` |
 
 ## 17. Checklist de hardening
 
@@ -1003,7 +1003,7 @@ Antes de operar em produção:
 - [ ] Fixe imagens Docker (`--image`) quando precisar de reprodutibilidade.
 - [ ] Proteja o banco: `chmod 600 opf.db` e cuidado com `opf.db-wal`/`opf.db-shm`.
 - [ ] Valide o `SHA256SUMS` recebido no destino antes de instalar (o pipeline já faz P3; confira em auditorias).
-- [ ] Mantenha o Syslog em rede gerencial; o transporte é UDP/TCP sem TLS na v0.2.3.
+- [ ] Mantenha o Syslog em rede gerencial; o transporte é UDP/TCP sem TLS na v0.2.4.
 - [ ] Revise os relatórios exportados antes de compartilhar (contêm host, usuário e kernel).
 - [ ] Rode o OPF com um usuário local sem privilégios; o acesso remoto é o único privilegiado.
 - [ ] Atualize Docker/WSL e o próprio OPF; acompanhe o changelog e avisos de segurança.
@@ -1018,13 +1018,13 @@ Antes de operar em produção:
 | Posso informar vários pacotes? | Sim: repita `--pkg` ou separe por vírgula. Cada sessão gera um manifesto, uma transferência e uma instalação. |
 | Como incluir dependências opcionais? | `--with-optional` (APT: Recommends/Suggests/Enhances; DNF: weak deps). APK não distingue opcionais. |
 | O OPF configura os repositórios no destino? | Não. Repositórios adicionais existem apenas no ambiente isolado de download. |
-| Como retomar uma sessão que falhou? | Use a GUI (**Continuar**/**Retomar**) ou a TUI (`r` no histórico). A CLI da v0.2.3 não retoma, e etapas de instalação nunca são retomadas sem nova confirmação. |
+| Como retomar uma sessão que falhou? | Use a GUI (**Continuar**/**Retomar**) ou a TUI (`r` no histórico). A CLI da v0.2.4 não retoma, e etapas de instalação nunca são retomadas sem nova confirmação. |
 | Minhas senhas ficam salvas? | Não. Senhas de SSH, sudo e pontes ficam apenas em memória; `config_json` guarda somente metadados. |
 | Por que o download não mostra MB/s? | Porque `apt`, `dnf` e `apk` não fornecem métricas estruturadas confiáveis; bytes reais aparecem apenas no upload SFTP, controlado pelo OPF. |
 | Funciona no macOS? | Sim, como plataforma secundária, com Docker. A GUI requer Xcode Command Line Tools. |
 | E no Windows sem Docker? | Use WSL2 com uma distro Ubuntu/Debian da mesma versão do alvo; apenas a família APT é suportada. |
 | Onde ficam os arquivos baixados? | Em `<out>/sessao-<id>/` com o manifesto `SHA256SUMS`. O padrão é `./opf-output`. |
-| Posso usar um repositório privado com usuário e senha? | Não na v0.2.3. URLs com credenciais são rejeitadas; use chave/CA e, se necessário, um proxy autenticado na rede. |
+| Posso usar um repositório privado com usuário e senha? | Não na v0.2.4. URLs com credenciais são rejeitadas; use chave/CA e, se necessário, um proxy autenticado na rede. |
 | Posso mudar o idioma da interface? | Sim. A GUI e a TUI oferecem **Idioma da interface** em **Configurações Globais** (`auto`, `en`, `pt-BR`, `es`), a CLI aceita `--lang` e a variável `OPF_LANG` define o padrão quando a opção é `auto`. O padrão segue o idioma do sistema, com inglês como fallback. |
 | Como auditar o que foi instalado? | Consulte o relatório JSON/Markdown da sessão (papel principal/dependente, versão anterior, status, hashes) e as tabelas `pacotes`, `eventos` e `etapas_sessao`. |
 
@@ -1054,7 +1054,7 @@ Antes de operar em produção:
 ## 20. Versão e licença
 
 - **Produto:** Offline Package Fetcher (OPF)
-- **Versão deste manual:** 0.2.3
+- **Versão deste manual:** 0.2.4
 - **Licença:** GNU General Public License v3.0 — consulte [LICENSE](../LICENSE)
 - **Repositório:** <https://github.com/ph7ti/Offline-Package-Fetcher>
 - **Changelog:** [CHANGELOG.md](../CHANGELOG.md)

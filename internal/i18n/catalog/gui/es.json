@@ -237,6 +237,7 @@
   "[✘] Detecção falhou": "[✘] Detección falló",
   "abortada": "abortada",
   "abrir SQLite %q": "abrir SQLite %q",
+  "usando banco padrão em %s": "usando base de datos predeterminada en %s",
   "artefatos rastreados": "artefactos rastreados",
   "caminho da chave no host": "ruta de la clave en el host",
   "cancelamento solicitado": "cancelación solicitada",

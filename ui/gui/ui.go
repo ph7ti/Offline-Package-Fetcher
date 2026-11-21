@@ -211,11 +211,19 @@ func newUI(a fyne.App, window fyne.Window) *UI {
 
 	cwd, _ := os.Getwd()
 	ui.outEntry = widget.NewEntry()
-	ui.outEntry.SetText(filepath.Join(cwd, "opf-output"))
+	outDir := filepath.Join(cwd, "opf-output")
+	if p, err := config.DefaultOutputDir(); err == nil {
+		outDir = p
+	}
+	ui.outEntry.SetText(outDir)
 	ui.dbEntry = widget.NewEntry()
 	dbPath := strings.TrimSpace(settings.DatabasePath)
 	if dbPath == "" {
-		dbPath = filepath.Join(cwd, "opf.db")
+		if p, err := config.DefaultDatabasePath(); err == nil {
+			dbPath = p
+		} else {
+			dbPath = filepath.Join(cwd, "opf.db")
+		}
 	}
 	ui.dbEntry.SetText(dbPath)
 
@@ -266,10 +274,25 @@ func (u *UI) openStore() {
 	}
 	path := strings.TrimSpace(u.dbEntry.Text)
 	if path == "" {
-		path = "opf.db"
+		if p, err := config.DefaultDatabasePath(); err == nil {
+			path = p
+		} else {
+			path = "opf.db"
+		}
 	}
 	st, err := store.Open(path)
 	if err != nil {
+		// The configured path may be on a read-only/removed location (for
+		// example a previous working directory). Fall back to the per-user
+		// writable default and tell the user which database is in use.
+		if def, defErr := config.DefaultDatabasePath(); defErr == nil && filepath.Clean(def) != filepath.Clean(path) {
+			if fallback, fallbackErr := store.Open(def); fallbackErr == nil {
+				u.store = fallback
+				u.dbEntry.SetText(def)
+				u.settingsErr = fmt.Errorf("%s: %w; %s", i18n.T("abrir SQLite %q", path), err, i18n.T("usando banco padrão em %s", def))
+				return
+			}
+		}
 		u.settingsErr = fmt.Errorf("%s: %w", i18n.T("abrir SQLite %q", path), err)
 		return
 	}

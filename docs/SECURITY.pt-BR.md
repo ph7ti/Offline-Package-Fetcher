@@ -1,33 +1,33 @@
-# Relatório de Segurança — Offline Package Fetcher 0.2.3
+# Relatório de Segurança — Offline Package Fetcher 0.2.4
 
 **Português (BR)** | [English](SECURITY.md)
 
 | Campo | Valor |
 |:---|:---|
 | Projeto | Offline Package Fetcher (OPF) |
-| Versão | **0.2.3** |
+| Versão | **0.2.4** |
 | Repositório | <https://github.com/ph7ti/Offline-Package-Fetcher> |
 | Data do relatório | **2026-11-21** (America/Sao_Paulo) |
 | Testes executados em | **2026-11-21** |
 | Responsável pelo escopo | Engenheiro de segurança de aplicação (equipe de release) |
 | Situação | Suíte de segurança executada + varreduras estáticas/dinâmicas, achados triados |
 
-Este documento registra o trabalho de segurança realizado para a release pública v0.2.3
+Este documento registra o trabalho de segurança realizado para a release pública v0.2.4
 (2026-11-21): o modelo de ameaças, a matriz de controles/testes, as ferramentas e os comandos
 realmente executados, os caminhos das evidências, os achados e o status de remediação, além dos
 riscos residuais aceitos para esta release. A suíte e as varreduras foram reexecutadas na árvore
-final da 0.2.3; o histórico de remediação de dependências da 0.1.0 está preservado no
+final da 0.2.4; o histórico de remediação de dependências da 0.1.0 está preservado no
 [§5.3](#53-govulncheck) e no [§6](#6-achados). Nada aqui é teórico: cada controle mapeado abaixo
 é respaldado por um teste ou varredura executada. Os comandos e as saídas resumidas estão
 reproduzidos no [§5](#5-resultados-e-evidências-de-execução) e podem ser reexecutados com
 `scripts/security/scan.ps1` (Windows) ou `scripts/security/scan.sh` (Linux/macOS).
 
-**Nota de empacotamento da 0.2.3:** esta release adiciona os **artefatos de GUI
-Windows e macOS** que faltavam e notas de release curadas. GUI/CLI/TUI Windows
-são publicados brutos dentro de `.zip` (sem UPX, que o Cortex XDR bloqueia);
-GUI/CLI/TUI macOS são publicados como `.tar.gz`; a GUI Linux continua com UPX. O
-núcleo funcional, a CLI e a TUI são idênticos aos da 0.2.2; a suíte e as
-varreduras abaixo foram reconfirmadas na árvore da 0.2.3.
+**Nota da 0.2.4:** esta release corrige o caminho padrão do SQLite na GUI
+(banco por usuário em vez do diretório de trabalho) e adiciona fallback quando
+o caminho configurado não pode ser aberto. O empacotamento é o mesmo da 0.2.3:
+CLI/TUI/GUI Windows são brutos dentro de `.zip` (sem UPX, que o Cortex XDR
+bloqueia), CLI/TUI/GUI macOS são `.tar.gz` e a GUI Linux continua com UPX. A
+suíte e as varreduras abaixo foram reconfirmadas na árvore da 0.2.4.
 
 ---
 
@@ -112,9 +112,9 @@ varreduras abaixo foram reconfirmadas na árvore da 0.2.3.
    (informativo) e `go vet`.
 5. **Execução multiplataforma**: a suíte foi executada no Windows (plataforma principal de
    desenvolvimento, incluindo `CGO_ENABLED=1` para os testes da GUI) e em um contêiner Linux
-   `golang:1.27.4` com `OPF_LANG=pt-BR CGO_ENABLED=0` na árvore final da 0.2.3, para detectar
+   `golang:1.27.4` com `OPF_LANG=pt-BR CGO_ENABLED=0` na árvore final da 0.2.4, para detectar
    suposições específicas de plataforma nos testes de caminho/permissão/symlink. A árvore final
-   da 0.2.3 também foi verificada com o detector de corrida
+   da 0.2.4 também foi verificada com o detector de corrida
    (`CGO_ENABLED=1 OPF_LANG=pt-BR go test -race -count=1 ./test/security/...` → `ok`, exit 0).
 6. **Relato honesto**: todo resultado de ferramenta abaixo foi copiado de uma execução real.
    Achados intencionais são anotados no código (`#nosec`, `gitleaks:allow`) e documentados aqui;
@@ -215,7 +215,7 @@ Legenda: **PASS** = o teste verifica o controle e passou em 2026-11-21 no Window
 
 | # | Controle | Evidência | Resultado |
 |:---|:---|:---|:---|
-| C9.1 | A suíte de segurança está limpa sob o detector de corrida na árvore final da 0.2.3 | `CGO_ENABLED=1 OPF_LANG=pt-BR go test -race -count=1 ./test/security/...` → `ok opf/test/security`, exit 0 (Linux) | PASS |
+| C9.1 | A suíte de segurança está limpa sob o detector de corrida na árvore final da 0.2.4 | `CGO_ENABLED=1 OPF_LANG=pt-BR go test -race -count=1 ./test/security/...` → `ok opf/test/security`, exit 0 (Linux) | PASS |
 | C9.2 | Suíte completa de regressão | `go test -count=1 ./...` (todos os pacotes) | PASS |
 | C9.3 | Gate de análise estática de severidade/confiança altas | `gosec -severity high -confidence high ./...` → 0 issues | PASS |
 | C9.4 | Nenhum segredo na árvore de trabalho | `gitleaks dir . --no-banner --redact` → no leaks | PASS |
@@ -243,7 +243,7 @@ Legenda: **PASS** = o teste verifica o controle e passou em 2026-11-21 no Window
 | gcc / CGO | MinGW-W64 UCRT `gcc.exe 16.2.0` | Necessário para `-race` no Windows |
 | Docker | `29.9.2` (cliente) | Usado para executar `golang:1.27.4 linux/amd64` |
 | gitleaks | `8.30.1` (binário de release) | Um binário compilado do código-fonte também foi usado pelo Lead; ele imprime `version is set by build process` e produziu o mesmo resultado (0 vazamentos) |
-| govulncheck | `v1.10.0`, DB `https://vuln.go.dev` | `govulncheck -version`; a execução da 0.2.3 usou um banco atualizado em que o item não alcançável anterior de `x/image` não é mais reportado |
+| govulncheck | `v1.10.0`, DB `https://vuln.go.dev` | `govulncheck -version`; a execução da 0.2.4 usou um banco atualizado em que o item não alcançável anterior de `x/image` não é mais reportado |
 | gosec | módulo `github.com/securego/gosec/v2 v2.30.0` | `gosec -version` imprime `Version: dev` (build do código-fonte); versão do módulo lida com `go version -m` |
 | staticcheck | `2026.2.2 (0.8.2)` | Informativo |
 | actionlint | `v1.7.12` | Lint dos workflows |
@@ -278,7 +278,7 @@ docker run --rm -v "<repo>:/src" -w /src -e CGO_ENABLED=1 \
 
 | Local | Testes de nível superior | Conteúdo |
 |:---|:---:|:---|
-| `test/security/**` | 33 | Suíte do modelo de ameaças (este documento), incluindo os testes de idioma da 0.2.3 |
+| `test/security/**` | 33 | Suíte do modelo de ameaças (este documento), incluindo os testes de idioma da 0.2.4 |
 | `internal/app/security_test.go` | 3 | Exclusão de segredos no `configJSON`, guarda do pipeline |
 | `internal/transfer/security_test.go` | 5 | Rigor de host key, quoting, caminho remoto |
 | `internal/installer/security_test.go` | 4 | Quoting, wrapper de sudo, diretório remoto |
@@ -310,7 +310,7 @@ Os artefatos brutos são gravados em `bin/security/` (ignorado pelo git) por
 
 ### 5.1 Suítes de teste
 
-Execuções finais de 2026-11-21 na árvore da 0.2.3:
+Execuções finais de 2026-11-21 na árvore da 0.2.4:
 
 - **Contêiner Linux** (`golang:1.27.4 linux/amd64`, `OPF_LANG=pt-BR CGO_ENABLED=0`):
   `go test ./...` passou em todos os pacotes; `go vet ./...` saiu com 0 e `gofmt -l .` não
@@ -321,7 +321,7 @@ Execuções finais de 2026-11-21 na árvore da 0.2.3:
   da suíte, porque o antivírus trava um arquivo temporário que o runner tenta remover; nenhum
   teste falhou e todos os resultados de pacote são `ok`.
 - **Detector de corrida**: `CGO_ENABLED=1 OPF_LANG=pt-BR go test -race -count=1
-  ./test/security/...` → `ok opf/test/security` (exit 0) na árvore final da 0.2.3, além
+  ./test/security/...` → `ok opf/test/security` (exit 0) na árvore final da 0.2.4, além
   da execução completa sem `-race` acima.
 
 ### 5.2 gitleaks
@@ -343,7 +343,7 @@ O Lead corrigiu na origem com uma anotação inline naquela linha:
 {Host: "jump2", ..., Password: "jump2-segredo"}, // gitleaks:allow -- dummy fixture password
 ```
 
-Verificação final na árvore da 0.2.3:
+Verificação final na árvore da 0.2.4:
 
 ```text
 $ gitleaks dir . --no-banner --redact
@@ -397,7 +397,7 @@ código):
 | GO-2026-5158 (limite de tamanho de header de baggage) | `go.opentelemetry.io/otel` v1.41.0, corrigido em v1.42.0 | Somente nível de pacote; não chamado pelo OPF (`Symbol Results: none`). Candidato a upgrade futuro. |
 
 Assim, todos os sete advisories que eram alcançáveis antes da release estão **remediados na
-v0.2.3**, e o único advisory restante é **não alcançável** segundo a análise de símbolos do
+v0.2.4**, e o único advisory restante é **não alcançável** segundo a análise de símbolos do
 govulncheck. `go test ./...` passou após cada etapa de upgrade e na árvore final.
 
 ### 5.4 gosec
@@ -479,7 +479,7 @@ resultados das ferramentas e suas disposições.
 
 ## 7. Riscos residuais e aceitos
 
-Os riscos abaixo são aceitos para a v0.2.3. Cada um é explícito, documentado e, quando possível,
+Os riscos abaixo são aceitos para a v0.2.4. Cada um é explícito, documentado e, quando possível,
 mitigado por uma alternativa mais segura que o operador pode escolher.
 
 | ID | Risco | Por que é aceito | Mitigação disponível |
@@ -488,14 +488,14 @@ mitigado por uma alternativa mais segura que o operador pode escolher.
 | R2 | `--repo-insecure-tls`, `--repo-insecure-gpg`, `--ssh-insecure-skip-host-key` enfraquecem transporte ou confiança. | Necessários para repositórios isolados/laboratório e hosts com certificado próprio; bloqueá-los removeria cenários suportados. | Todos são opt-ins explícitos, registrados como warning e mutuamente exclusivos com a alternativa segura (CA/chave/host key) quando aplicável. A anotação SEC-01 registra a decisão de TLS. |
 | R3 | Banco SQLite, diretório de saída e `SHA256SUMS` usam permissões `0644`/`0755`. | A ferramenta costuma ser executada por um único operador; forçar `0600`/`0700` pode quebrar diretórios de saída compartilhados. | Execute o OPF em conta/diretório dedicado com umask restritivo; endurecimento é candidato para a v0.3.0. |
 | R4 | URLs HTTP de repositório são permitidas (a assinatura GPG continua obrigatória por padrão). | Espelhos air-gapped frequentemente são somente HTTP. | Use HTTPS quando possível; mantenha `--repo-insecure-gpg` desligado; opt-ins de CA/TLS são validados contra URLs HTTP. |
-| R5 | A autenticidade dos pacotes depende da confiança do gerenciador no ambiente isolado (chaves GPG do repositório) mais a integridade SHA-256 do conjunto baixado. SHA-256 prova integridade, não autenticidade do publicador. | Isso acompanha o modelo de confiança das distribuições em que o OPF opera; verificação independente de assinatura está fora do escopo da v0.2.3. | Mantenha a verificação GPG habilitada (padrão), use espelhos confiáveis e verifique o `SHA256SUMS` fora de banda se o host dos artefatos não for confiável. |
+| R5 | A autenticidade dos pacotes depende da confiança do gerenciador no ambiente isolado (chaves GPG do repositório) mais a integridade SHA-256 do conjunto baixado. SHA-256 prova integridade, não autenticidade do publicador. | Isso acompanha o modelo de confiança das distribuições em que o OPF opera; verificação independente de assinatura está fora do escopo da v0.2.4. | Mantenha a verificação GPG habilitada (padrão), use espelhos confiáveis e verifique o `SHA256SUMS` fora de banda se o host dos artefatos não for confiável. |
 | R6 | Metadados de inventário do destino autenticado (nomes/versões) são armazenados como dados opacos; nomes de pacotes não são revalidados contra whitelist. | O destino é autenticado e os valores nunca são interpolados em comandos; apenas persistidos/reportados. | Não use um destino comprometido como fonte de verdade para relatórios; a validação pode ser endurecida em release futura. |
 | R7 | O comando de instalação remota executa gerenciadores de pacotes como root (ou via sudo) no destino. | Instalar pacotes exige privilégio; o OPF exige confirmação explícita antes das etapas 10/11. | Revise o comando gerado (logado/streamado), mantenha `--sudo` restrito e use uma conta de manutenção dedicada. |
 | R8 | O isolamento Docker/WSL depende do runtime do host e executa comandos como root dentro do ambiente isolado. | O ambiente isolado é descartado por sessão e nunca recebe credenciais SSH. | Mantenha Docker/WSL atualizados; não monte segredos do host no ambiente isolado. |
 | R9 | Um symlink dentro do diretório de artefatos pode ser verificado se o conteúdo do alvo corresponder ao hash do manifesto. | A verificação é por conteúdo; um atacante que já escreve na árvore de artefatos e conhece os hashes pode trocar conteúdo, mas não escapar do diretório por nomes de manifesto. | Mantenha os diretórios de artefatos graváveis apenas pelo operador; symlinks para arquivos não regulares são rejeitados (C4.2). |
 | R10 | O advisory de dependência da GUI (SEC-10) não é alcançável, mas o módulo `otel` permanece no binário. | Atualizar mais é decisão do responsável pela release; a análise de símbolos do govulncheck não mostra caminho de chamada. | Atualize `otel` para 1.42.0 em release futura e reexecute o `govulncheck`. |
 | R11 | A suíte de segurança não realiza ataques ponta a ponta ao vivo contra alvos SSH/Docker/WSL reais. | CI determinística e sem infraestrutura; a suíte de integração funcional (F0–F5) cobre os fluxos ao vivo separadamente. | Execute `go test -tags=integration ./...` em laboratório controlado antes de implantações de alta garantia. |
-| R12 | A cobertura de `-race` é Linux amd64 (execução final da 0.2.3) mais as execuções Windows/Linux registradas para a 0.1.0; macOS não é exercitado nesta execução. | A release visa principalmente Linux/Windows; macOS é secundário. | Adicione macOS à matriz de CI se ele se tornar alvo suportado. |
+| R12 | A cobertura de `-race` é Linux amd64 (execução final da 0.2.4) mais as execuções Windows/Linux registradas para a 0.1.0; macOS não é exercitado nesta execução. | A release visa principalmente Linux/Windows; macOS é secundário. | Adicione macOS à matriz de CI se ele se tornar alvo suportado. |
 | R13 | Os binários de release para Linux (CLI/TUI/GUI) são comprimidos com UPX e têm metadados removidos (`-s -w -buildid=`), o que elimina metadados de build e dificulta inspeção estática e confiança sem assinatura; CLI/TUI/GUI Windows são distribuídos brutos dentro de `.zip` porque o Cortex XDR bloqueia PE empacotado com UPX, e CLI/TUI/GUI macOS são `.tar.gz` porque o UPX não empacota Mach-O. | A compressão é uma decisão de tamanho de release para os ativos Linux e para os arquivos de download Windows/macOS; fontes e comandos de build reproduzíveis são públicos. | Verifique cada ativo contra o `SHA256SUMS` publicado, prefira assinatura de código para ampliar a confiança e compile do código-fonte com `make build` quando transparência total for exigida. |
 
 ---
@@ -509,7 +509,7 @@ mitigado por uma alternativa mais segura que o operador pode escolher.
 - Os testes de injeção verificam o quoting de forma estrutural (token entre aspas simples,
   payload apenas dentro de aspas) em vez de executar um shell POSIX real no Windows; os mesmos
   testes rodam no Linux no contêiner, onde a semântica POSIX é nativa.
-- Nenhum fuzzing (`go test -fuzz`) foi realizado na v0.2.3; os parsers são cobertos por testes
+- Nenhum fuzzing (`go test -fuzz`) foi realizado na v0.2.4; os parsers são cobertos por testes
   de tabela com entradas hostis.
 - Nenhum pentest externo ou revisão manual de código por terceiro foi realizado.
 - A varredura de segredos cobre apenas a árvore de trabalho; o histórico git é varrido pela
@@ -561,7 +561,7 @@ go test -count=1 ./...
 go test -count=1 ./test/security/...
 gitleaks (action)
 gosec -severity high -confidence high ./...
-govulncheck ./...     # informativo na v0.2.3 (continue-on-error)
+govulncheck ./...     # informativo na v0.2.4 (continue-on-error)
 ```
 
 Para adicionar a variante com race, use `go test -race -count=1 ./test/security/...` em um
@@ -585,7 +585,7 @@ runner Linux com gcc instalado.
 ## 11. Declaração de release
 
 - A suíte de segurança definida neste documento foi **reexecutada em 2026-11-21** para o
-  **Offline Package Fetcher v0.2.3**: 56 testes de nível superior (33 em `test/security/**` e 23
+  **Offline Package Fetcher v0.2.4**: 56 testes de nível superior (33 em `test/security/**` e 23
   testes white-box nos pacotes internos), incluindo os novos testes de idioma da interface.
 - `go test ./...` passa na árvore de release no Windows (incluindo os testes da GUI com CGO) e
   em um contêiner Linux `golang:1.27.4`; `go vet ./...` e `gofmt -l .` estão limpos.
@@ -601,7 +601,7 @@ runner Linux com gcc instalado.
   metadados (`-trimpath -ldflags "-s -w -buildid="`), verificados com `upx -t` e com um smoke
   test do `-h` da CLI comprimida; executáveis Windows são brutos dentro de `.zip` (sem UPX) e os
   ativos macOS são `.tar.gz` verificados com `tar -tzf` (ver R13).
-- Os itens restantes dos scanners e os riscos residuais do §7 são aceitos para a v0.2.3 e devem
+- Os itens restantes dos scanners e os riscos residuais do §7 são aceitos para a v0.2.4 e devem
   ser revisitados na v0.3.0.
 
 **Assinado por:** engenheiro de segurança de aplicação, equipe de release do OPF, 2026-11-21.

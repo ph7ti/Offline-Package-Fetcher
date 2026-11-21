@@ -13,7 +13,7 @@
 
 **Baixe pacotes Linux e o conjunto completo de dependências para ambientes isolados — e, quando fizer sentido, transfira por SSH/SFTP e instale no destino.**
 
-Versão **0.2.3** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
+Versão **0.2.4** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
 
 ---
 
@@ -84,7 +84,7 @@ Métodos de fetch:
 
 Arquiteturas reconhecidas: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` e `i386`/`i686` (normalizadas por família: `amd64` no APT, `x86_64` no RPM, entre outras).
 
-Limites conhecidos da v0.2.3:
+Limites conhecidos da v0.2.4:
 
 - **macOS** é plataforma secundária e requer Docker para baixar pacotes.
 - **WSL** atende apenas Ubuntu/Debian (APT); famílias RPM/APK exigem Docker.
@@ -139,7 +139,7 @@ O núcleo depende apenas de interfaces (`PackageFetcher`, `DependencyResolver`, 
 
 ### A. Binários da release
 
-1. Abra [a página da release v0.2.3](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.3).
+1. Abra [a página da release v0.2.4](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.4).
 2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto. Cada release publica 15 ativos: `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe.zip`, `opf-cli-darwin-amd64.tar.gz`, `opf-cli-darwin-arm64.tar.gz`, as mesmas cinco variantes de `opf-tui`, `opf-gui-linux-amd64`, `opf-gui-windows-amd64.exe.zip`, `opf-gui-darwin-amd64.tar.gz`, `opf-gui-darwin-arm64.tar.gz` e `SHA256SUMS`. Binários Linux usam UPX; executáveis Windows são publicados **brutos dentro de `.zip`** (extraia com `Expand-Archive` ou qualquer ferramenta zip); binários macOS ficam em `.tar.gz` (extraia com `tar -xzf <ativo>.tar.gz`).
 3. Confira a integridade do download:
 
@@ -251,7 +251,7 @@ opf-cli --target alpine:3.20 --arch x86_64 --pkg curl \
   --export-markdown ./opf-output/relatorio.md
 ```
 
-O diretório de saída padrão é `./opf-output`, o banco padrão é `./opf.db` e o destino remoto padrão é `/tmp/opf-sessao-<id>`.
+O diretório de saída padrão da CLI/TUI é `./opf-output`, o banco padrão é `./opf.db` e o destino remoto padrão é `/tmp/opf-sessao-<id>`. A **GUI** usa caminhos por usuário — SQLite em `<UserConfigDir>/opf/opf.db` (por exemplo, `%AppData%\opf\opf.db` no Windows) e saída em `~/OPF` — para funcionar mesmo quando aberta de uma pasta somente leitura; se o caminho configurado não puder ser aberto, a GUI usa o padrão por usuário e mostra um aviso.
 
 ## GUI e TUI
 
@@ -363,6 +363,6 @@ O OPF foi desenvolvido com **apoio intensivo de ferramentas de IA** — geraçã
 
 ## Versão
 
-**Versão 0.2.3** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
+**Versão 0.2.4** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
 
 [English](../README.md) | **Português (BR)**

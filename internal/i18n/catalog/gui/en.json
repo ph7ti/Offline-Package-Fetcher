@@ -237,6 +237,7 @@
   "[✘] Detecção falhou": "[✘] Detection failed",
   "abortada": "aborted",
   "abrir SQLite %q": "open SQLite %q",
+  "usando banco padrão em %s": "using default database at %s",
   "artefatos rastreados": "tracked artifacts",
   "caminho da chave no host": "key path on the host",
   "cancelamento solicitado": "cancellation requested",
