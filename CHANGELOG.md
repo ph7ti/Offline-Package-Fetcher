@@ -4,6 +4,27 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-11-21
+
+Packaging-only release: the functional Go code is unchanged from 0.2.0; the release assets now use the
+strongest compression that the GitHub Actions runners can produce.
+
+### Changed
+
+- Windows CLI/TUI `.exe` files are now **UPX-packed in CI** (`--best --lzma`), dropping them from
+  ~14.8/15.7 MB to ~4.8/5.0 MB. Endpoint-protection products may require allow-listing the
+  downloaded executable; `make build` still produces an uncompressed build when needed.
+- macOS CLI/TUI binaries are published as **`.tar.gz` archives** instead of raw Mach-O files
+  (~5.6–6.3 MB instead of 13.8–15.5 MB); extract with `tar -xzf <asset>.tar.gz`.
+- Linux assets remain UPX-packed. The release job re-verifies every packed artifact with
+  `upx -t`, verifies the macOS archive contents, and continues to publish 12 assets (11 binaries
+  plus `SHA256SUMS`).
+
+### Fixed
+
+- The release smoke test restores the executable bit on the downloaded Linux CLI before running
+  `-h` (GitHub artifact downloads do not preserve file permissions).
+
 ## [0.2.0] - 2026-11-21
 
 Interface language release: the GUI, TUI and CLI now follow the operating system language
