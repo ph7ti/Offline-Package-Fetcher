@@ -319,6 +319,9 @@ jobs:
         working-directory: dist
         run: |
           set -euo pipefail
+          # Artifacts downloaded from GitHub do not preserve the executable
+          # bit, so restore it before running the smoke test.
+          chmod +x opf-cli-linux-amd64
           # `-h` exits 0 (flag.ErrHelp is handled); printing the usage text
           # proves the compressed binary still executes after the artifact
           # round-trip, before the release is published.
