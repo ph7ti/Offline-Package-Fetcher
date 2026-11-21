@@ -511,8 +511,7 @@ mitigado por uma alternativa mais segura que o operador pode escolher.
 ### 9.1 Local (Windows)
 
 ```powershell
-$env:GOROOT = 'C:\tools\go1.27.4'
-$env:PATH   = 'C:\tools\go1.27.4\bin;' + $env:PATH
+# Requer Go 1.27.4 e gcc/MinGW disponíveis no PATH
 $env:CGO_ENABLED = '1'   # necessário para -race (gcc/MinGW)
 
 go test -race -count=1 ./test/security/...

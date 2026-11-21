@@ -503,8 +503,7 @@ mitigated by a safer alternative that the operator can choose.
 ### 9.1 Local (Windows)
 
 ```powershell
-$env:GOROOT = 'C:\tools\go1.27.4'
-$env:PATH   = 'C:\tools\go1.27.4\bin;' + $env:PATH
+# Requires Go 1.27.4 and gcc/MinGW available on PATH
 $env:CGO_ENABLED = '1'   # needed for -race (gcc/MinGW required)
 
 go test -race -count=1 ./test/security/...

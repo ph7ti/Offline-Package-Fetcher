@@ -168,10 +168,9 @@ make build-linux    # bin/opf-cli-linux-amd64
 ### C. Compilar no Windows (PowerShell)
 
 ```powershell
-$env:GOROOT = 'C:\tools\go1.27.4'
-$env:PATH   = "$env:GOROOT\bin;$env:PATH"
-
+# Go 1.27.4 instalado e disponível no PATH (go version => go1.27.4)
 New-Item -ItemType Directory -Force bin | Out-Null
+$env:CGO_ENABLED = '0'
 go build -trimpath -ldflags "-s -w" -o bin/opf-cli.exe ./cmd/opf-cli
 go build -trimpath -ldflags "-s -w" -o bin/opf-tui.exe ./cmd/opf-tui
 ```

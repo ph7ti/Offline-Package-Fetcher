@@ -172,9 +172,7 @@ make build-linux    # bin/opf-cli-linux-amd64
 ### C. Build on Windows (PowerShell)
 
 ```powershell
-$env:GOROOT = 'C:\tools\go1.27.4'
-$env:PATH   = "$env:GOROOT\bin;$env:PATH"
-
+# Go 1.27.4 must be installed and available on PATH (go version => go1.27.4)
 New-Item -ItemType Directory -Force bin | Out-Null
 $env:CGO_ENABLED = '0'
 go build -trimpath -ldflags "-s -w" -o bin/opf-cli.exe ./cmd/opf-cli
@@ -189,7 +187,7 @@ make build-gui      # bin/opf-gui — requires CGO_ENABLED=1 and graphics librar
 
 Prerequisites per platform:
 
-- **Linux (Debian/Ubuntu)**: `sudo apt-get install gcc libgl1-mesa-dev xorg-dev` (CI also installs `libxkbcommon-dev` and `libwayland-dev`, required by GLFW 3.4) (CI also installs `libxkbcommon-dev` and `libwayland-dev`, required by GLFW 3.4)
+- **Linux (Debian/Ubuntu)**: `sudo apt-get install gcc libgl1-mesa-dev xorg-dev` (CI also installs `libxkbcommon-dev` and `libwayland-dev`, required by GLFW 3.4)
 - **Windows**: a `gcc` toolchain (mingw-w64) available in `PATH`
 - **macOS**: `xcode-select --install`
 
