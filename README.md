@@ -13,7 +13,7 @@
 
 **Download Linux packages and their complete dependency closure for isolated environments — and, when it makes sense, ship them over SSH/SFTP and install them on the target.**
 
-Version **0.2.4** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
+Version **0.2.5** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
 
 ---
 
@@ -84,7 +84,7 @@ Fetch methods:
 
 Recognized architectures: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` and `i386`/`i686` (normalized per family: `amd64` for APT, `x86_64` for RPM, and so on).
 
-Known limits in v0.2.4:
+Known limits in v0.2.5:
 
 - **macOS** is a secondary platform and requires Docker to download packages.
 - **WSL** covers Ubuntu/Debian (APT) only; RPM/APK families require Docker.
@@ -137,10 +137,24 @@ The core depends only on interfaces (`PackageFetcher`, `DependencyResolver`, `Tr
 
 ## Installation
 
-### A. Release binaries
+### A. Installers (recommended)
 
-1. Open [the v0.2.4 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.4).
-2. Download the asset for your platform and the `SHA256SUMS` file published next to it. Each release publishes 15 assets: `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe.zip`, `opf-cli-darwin-amd64.tar.gz`, `opf-cli-darwin-arm64.tar.gz`, the same five variants for `opf-tui`, `opf-gui-linux-amd64`, `opf-gui-windows-amd64.exe.zip`, `opf-gui-darwin-amd64.tar.gz`, `opf-gui-darwin-arm64.tar.gz` and `SHA256SUMS`. Linux binaries are UPX-packed; Windows executables are published **raw inside `.zip` archives** (extract with `Expand-Archive` or any zip tool); macOS binaries are inside `.tar.gz` archives (extract with `tar -xzf <asset>.tar.gz`).
+Each installer offers four profiles: **bundle** (GUI + TUI + CLI), **GUI only**, **TUI only** and **CLI only**.
+
+| Platform | Installer asset |
+|:---|:---|
+| Linux amd64 / arm64 | `opf-installer-linux-amd64.run`, `opf-installer-linux-arm64.run` |
+| Windows amd64 / arm64 | `opf-installer-windows-amd64.zip`, `opf-installer-windows-arm64.zip` |
+| macOS amd64 / arm64 | `opf-installer-darwin-amd64.pkg`, `opf-installer-darwin-arm64.pkg` |
+
+- **Windows:** extract the `.zip` and run `opf-installer.exe`; choose one of the four profiles. It installs to `%LocalAppData%\OPF`, adds that folder to the per-user `PATH` and creates a Start Menu shortcut for the GUI. The installer and payload are raw Go/Windows executables (no packed setup and no `msiexec`), which Cortex XDR accepts.
+- **Linux:** `chmod +x opf-installer-linux-amd64.run` then run it; choose a profile. As root it installs to `/usr/local/bin`, otherwise to `~/.local/bin`, and creates a desktop entry for the GUI. Non-interactive: `OPF_INSTALL_PROFILE=bundle ./opf-installer-linux-amd64.run`.
+- **macOS:** open the `.pkg` and select one choice; it installs `OPF.app` to `/Applications` and the CLI/TUI to `/usr/local/bin`. The package is unsigned; use **Open** from the context menu if Gatekeeper blocks it.
+
+### B. Release binaries
+
+1. Open [the v0.2.5 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.5).
+2. Download the asset for your platform and the `SHA256SUMS` file published next to it. Each release publishes 25 assets: CLI/TUI for linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64 and darwin/arm64; GUI for linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64 and darwin/arm64; the six installers above; and `SHA256SUMS`. Linux binaries are UPX-packed; Windows executables are published **raw inside `.zip` archives** (extract with `Expand-Archive` or any zip tool); macOS binaries are inside `.tar.gz` archives (extract with `tar -xzf <asset>.tar.gz`).
 3. Verify the download:
 
 ```bash
@@ -159,7 +173,7 @@ The `opf-cli` and `opf-tui` binaries are static (`CGO_ENABLED=0`). `opf-gui` dep
 
 The Linux CLI/TUI and GUI assets are stripped with `-trimpath -ldflags "-s -w -buildid="` and compressed with UPX (`--best --lzma`): on linux/amd64 the CLI drops from 14.5 MB to 4.7 MB, the TUI from 15.4 MB to 4.9 MB and the GUI from 33.8 MB to 12.3 MB. Windows executables are **not UPX-packed** — Cortex XDR blocks packed PE files — and are shipped raw inside `.zip` archives instead (~6.1/6.4 MB for CLI/TUI and ~15.6 MB for the GUI). macOS binaries cannot be packed by UPX and are published as `.tar.gz` archives. Code signing with a trusted certificate is recommended for wider trust but is not required for Cortex XDR to run the extracted Windows binary.
 
-### B. Build from source (Linux and macOS)
+### C. Build from source (Linux and macOS)
 
 ```bash
 git clone https://github.com/ph7ti/Offline-Package-Fetcher.git
@@ -176,7 +190,7 @@ make build-linux    # bin/opf-cli-linux-amd64
 
 The make targets use the production flags `-trimpath -ldflags "-s -w -buildid="`, so local builds match the published binaries in this respect. On Linux and Windows, `make compress` optionally UPX-packs the binaries with `--best --lzma` and verifies each one with `upx -t`; macOS binaries are left untouched because UPX cannot pack Mach-O.
 
-### C. Build on Windows (PowerShell)
+### D. Build on Windows (PowerShell)
 
 ```powershell
 # Go 1.27.4 must be installed and available on PATH (go version => go1.27.4)
@@ -186,7 +200,7 @@ go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-cli.exe ./cmd/opf-cli
 go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-tui.exe ./cmd/opf-tui
 ```
 
-### D. GUI (Fyne)
+### E. GUI (Fyne)
 
 ```bash
 make build-gui      # bin/opf-gui — requires CGO_ENABLED=1 and graphics libraries
@@ -373,6 +387,6 @@ OPF was developed with **heavy AI assistance** — code generation, tests, revie
 
 ## Version
 
-**Version 0.2.4** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
+**Version 0.2.5** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
 
 **English** | [Português (BR)](docs/README.pt-BR.md)

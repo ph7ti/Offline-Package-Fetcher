@@ -1,6 +1,6 @@
 [English](MANUAL.md) | **Português (BR)**
 
-# Manual do Usuário — Offline Package Fetcher (OPF) v0.2.4
+# Manual do Usuário — Offline Package Fetcher (OPF) v0.2.5
 
 Este manual é a referência operacional do OPF: descreve cada tela, cada flag, o pipeline de 13 etapas, o banco SQLite, os relatórios, o Syslog e os procedimentos de diagnóstico. Para uma visão geral do projeto, comece pelo [README em português](README.pt-BR.md).
 
@@ -40,7 +40,7 @@ O OPF **faz**:
 - instalar no destino após confirmação explícita;
 - registrar tudo em SQLite e exportar relatórios JSON/Markdown, além de enviar eventos a um Syslog externo.
 
-O OPF **não faz** (v0.2.4):
+O OPF **não faz** (v0.2.5):
 
 - configurar repositórios no servidor de destino;
 - autenticar em repositórios privados com usuário/senha;
@@ -98,9 +98,23 @@ Observações:
 
 ## 4. Instalação, build e verificação
 
-### 4.1 Binários da release
+### 4.1 Instaladores e binários da release
 
-1. Acesse a página da release `v0.2.4`.
+#### Instaladores (recomendado)
+
+Cada instalador por arquitetura oferece quatro perfis: **bundle** (GUI + TUI + CLI), **somente GUI**, **somente TUI** e **somente CLI**.
+
+| Plataforma | Ativo | Comportamento |
+|:---|:---|:---|
+| Linux amd64/arm64 | `opf-installer-linux-*.run` | instala em `/usr/local/bin` como root ou `~/.local/bin`; cria entrada de desktop da GUI |
+| Windows amd64/arm64 | `opf-installer-windows-*.zip` | contém `opf-installer.exe` + `payload/`; instala em `%LocalAppData%\OPF`, adiciona ao PATH do usuário e cria atalho no Menu Iniciar |
+| macOS amd64/arm64 | `opf-installer-darwin-*.pkg` | instala `OPF.app` em `/Applications` e CLI/TUI em `/usr/local/bin`; quatro opções no instalador |
+
+O instalador Windows e o payload são executáveis brutos (sem setup empacotado e sem MSI), aceitos pelo Cortex XDR. O pacote macOS não é assinado; use **Abrir** no menu de contexto se o Gatekeeper bloquear. Os `.run` do Linux aceitam `OPF_INSTALL_PROFILE=bundle|gui|tui|cli` e `OPF_INSTALL_PREFIX` para uso não interativo.
+
+#### Binários da release
+
+1. Acesse a página da release `v0.2.5`.
 2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto.
 3. Verifique o hash:
 
@@ -119,7 +133,7 @@ chmod +x opf-cli
 sudo install -m 0755 opf-cli /usr/local/bin/opf-cli
 ```
 
-Cada release publica 15 ativos (14 binários e `SHA256SUMS`): CLI e TUI em linux/amd64, linux/arm64, windows/amd64 (`.exe` bruto dentro de `.zip`), darwin/amd64 e darwin/arm64 (`.tar.gz`), GUI em linux/amd64, windows/amd64 (`.exe` bruto dentro de `.zip`) e darwin/amd64 + darwin/arm64 (`.tar.gz`). Extraia os ativos Windows com qualquer ferramenta zip e os macOS com `tar -xzf <ativo>.tar.gz`.
+Cada release publica 25 ativos (24 binários/instaladores e `SHA256SUMS`): CLI e TUI em linux/amd64, linux/arm64, windows/amd64 e windows/arm64 (`.exe` bruto dentro de `.zip`), darwin/amd64 e darwin/arm64 (`.tar.gz`); GUI em linux/amd64, linux/arm64, windows/amd64 e windows/arm64 (GUI Windows em `.zip`, Linux arm64 em `.tar.gz`), darwin/amd64 + darwin/arm64 (`.tar.gz`); os seis instaladores acima. Extraia os ativos Windows com qualquer ferramenta zip e os macOS com `tar -xzf <ativo>.tar.gz`.
 
 #### Tamanho dos binários e compressão
 
@@ -593,7 +607,7 @@ Precedência: `--lang` > `OPF_LANG` > sistema operacional. Os apelidos `pt` e `p
 
 O idioma se aplica à ajuda/uso das flags, mensagens de erro, progresso no console, nomes e mensagens das etapas do pipeline e rótulos do relatório Markdown; a GUI e a TUI também traduzem suas strings visíveis (ver [6. GUI passo a passo](#6-gui-passo-a-passo) e [7. TUI passo a passo](#7-tui-passo-a-passo)). `-h`/`--help` imprime a referência no idioma ativo e sai com código `0`.
 
-Limitação na 0.2.4: os diagnósticos de baixo nível permanecem em português do Brasil independentemente do idioma selecionado. Isso inclui a saída dos gerenciadores de pacotes e do ambiente isolado (apt/dpkg, dnf/yum/rpm, apk, ferramentas Docker/WSL), as causas de erro emitidas pelas camadas de fetch, transferência, instalação, resolução, inspeção, armazenamento, configuração e aplicação, e parte das linhas de log interna (slog).
+Limitação na 0.2.5: os diagnósticos de baixo nível permanecem em português do Brasil independentemente do idioma selecionado. Isso inclui a saída dos gerenciadores de pacotes e do ambiente isolado (apt/dpkg, dnf/yum/rpm, apk, ferramentas Docker/WSL), as causas de erro emitidas pelas camadas de fetch, transferência, instalação, resolução, inspeção, armazenamento, configuração e aplicação, e parte das linhas de log interna (slog).
 
 ## 9. Detecção remota do alvo
 
@@ -761,7 +775,7 @@ opf-cli --target ubuntu:22.04 --arch amd64 --pkg mytool \
 
 - A lista é **aditiva**: repositórios oficiais continuam habilitados; não há pin/priority.
 - No WSL (ambiente persistente), os arquivos usam prefixo de sessão e são removidos no cleanup; no Docker o contêiner é efêmero.
-- Nenhuma credencial de repositório é aceita ou armazenada na v0.2.4.
+- Nenhuma credencial de repositório é aceita ou armazenada na v0.2.5.
 - Chave e CA são material público e podem aparecer em `config_json` (metadados), mas nunca em relatórios como segredo.
 - Em retomadas, a lista é repovoada; se a chave/CA local sumiu, o erro cita o repositório afetado.
 
@@ -853,7 +867,7 @@ Efeitos:
 
 ### 13.3 Retomada por checkpoint
 
-A retomada existe na **GUI** (botão **Retomar**/ação **Continuar**) e na **TUI** (`r` no histórico / **Continuar sessão**). A CLI da v0.2.4 não expõe retomada.
+A retomada existe na **GUI** (botão **Retomar**/ação **Continuar**) e na **TUI** (`r` no histórico / **Continuar sessão**). A CLI da v0.2.5 não expõe retomada.
 
 Etapa segura calculada a partir de `etapas_sessao`:
 
@@ -1003,7 +1017,7 @@ Antes de operar em produção:
 - [ ] Fixe imagens Docker (`--image`) quando precisar de reprodutibilidade.
 - [ ] Proteja o banco: `chmod 600 opf.db` e cuidado com `opf.db-wal`/`opf.db-shm`.
 - [ ] Valide o `SHA256SUMS` recebido no destino antes de instalar (o pipeline já faz P3; confira em auditorias).
-- [ ] Mantenha o Syslog em rede gerencial; o transporte é UDP/TCP sem TLS na v0.2.4.
+- [ ] Mantenha o Syslog em rede gerencial; o transporte é UDP/TCP sem TLS na v0.2.5.
 - [ ] Revise os relatórios exportados antes de compartilhar (contêm host, usuário e kernel).
 - [ ] Rode o OPF com um usuário local sem privilégios; o acesso remoto é o único privilegiado.
 - [ ] Atualize Docker/WSL e o próprio OPF; acompanhe o changelog e avisos de segurança.
@@ -1018,13 +1032,13 @@ Antes de operar em produção:
 | Posso informar vários pacotes? | Sim: repita `--pkg` ou separe por vírgula. Cada sessão gera um manifesto, uma transferência e uma instalação. |
 | Como incluir dependências opcionais? | `--with-optional` (APT: Recommends/Suggests/Enhances; DNF: weak deps). APK não distingue opcionais. |
 | O OPF configura os repositórios no destino? | Não. Repositórios adicionais existem apenas no ambiente isolado de download. |
-| Como retomar uma sessão que falhou? | Use a GUI (**Continuar**/**Retomar**) ou a TUI (`r` no histórico). A CLI da v0.2.4 não retoma, e etapas de instalação nunca são retomadas sem nova confirmação. |
+| Como retomar uma sessão que falhou? | Use a GUI (**Continuar**/**Retomar**) ou a TUI (`r` no histórico). A CLI da v0.2.5 não retoma, e etapas de instalação nunca são retomadas sem nova confirmação. |
 | Minhas senhas ficam salvas? | Não. Senhas de SSH, sudo e pontes ficam apenas em memória; `config_json` guarda somente metadados. |
 | Por que o download não mostra MB/s? | Porque `apt`, `dnf` e `apk` não fornecem métricas estruturadas confiáveis; bytes reais aparecem apenas no upload SFTP, controlado pelo OPF. |
 | Funciona no macOS? | Sim, como plataforma secundária, com Docker. A GUI requer Xcode Command Line Tools. |
 | E no Windows sem Docker? | Use WSL2 com uma distro Ubuntu/Debian da mesma versão do alvo; apenas a família APT é suportada. |
 | Onde ficam os arquivos baixados? | Em `<out>/sessao-<id>/` com o manifesto `SHA256SUMS`. O padrão é `./opf-output`. |
-| Posso usar um repositório privado com usuário e senha? | Não na v0.2.4. URLs com credenciais são rejeitadas; use chave/CA e, se necessário, um proxy autenticado na rede. |
+| Posso usar um repositório privado com usuário e senha? | Não na v0.2.5. URLs com credenciais são rejeitadas; use chave/CA e, se necessário, um proxy autenticado na rede. |
 | Posso mudar o idioma da interface? | Sim. A GUI e a TUI oferecem **Idioma da interface** em **Configurações Globais** (`auto`, `en`, `pt-BR`, `es`), a CLI aceita `--lang` e a variável `OPF_LANG` define o padrão quando a opção é `auto`. O padrão segue o idioma do sistema, com inglês como fallback. |
 | Como auditar o que foi instalado? | Consulte o relatório JSON/Markdown da sessão (papel principal/dependente, versão anterior, status, hashes) e as tabelas `pacotes`, `eventos` e `etapas_sessao`. |
 
@@ -1054,7 +1068,7 @@ Antes de operar em produção:
 ## 20. Versão e licença
 
 - **Produto:** Offline Package Fetcher (OPF)
-- **Versão deste manual:** 0.2.4
+- **Versão deste manual:** 0.2.5
 - **Licença:** GNU General Public License v3.0 — consulte [LICENSE](../LICENSE)
 - **Repositório:** <https://github.com/ph7ti/Offline-Package-Fetcher>
 - **Changelog:** [CHANGELOG.md](../CHANGELOG.md)

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+  <title>Offline Package Fetcher</title>
+  <organization>org.opf</organization>
+  <options customize="always" require-scripts="false" hostArchitectures="@ARCH@" />
+  <domains enable_localSystem="true" enable_currentUserHome="false" />
+  <choices-outline>
+    <line choice="bundle" />
+    <line choice="gui" />
+    <line choice="tui" />
+    <line choice="cli" />
+  </choices-outline>
+
+  <choice id="bundle" title="Bundle: GUI + TUI + CLI" description="Install all three front ends." start_selected="true" start_enabled="true" start_visible="true">
+    <pkg-ref id="org.opf.gui" />
+    <pkg-ref id="org.opf.tui" />
+    <pkg-ref id="org.opf.cli" />
+  </choice>
+  <choice id="gui" title="GUI only" description="Install the desktop application." start_selected="false" start_enabled="true" start_visible="true">
+    <pkg-ref id="org.opf.gui" />
+  </choice>
+  <choice id="tui" title="TUI only" description="Install the terminal interface." start_selected="false" start_enabled="true" start_visible="true">
+    <pkg-ref id="org.opf.tui" />
+  </choice>
+  <choice id="cli" title="CLI only" description="Install the command-line interface." start_selected="false" start_enabled="true" start_visible="true">
+    <pkg-ref id="org.opf.cli" />
+  </choice>
+
+  <pkg-ref id="org.opf.gui" version="@VERSION@">gui.pkg</pkg-ref>
+  <pkg-ref id="org.opf.tui" version="@VERSION@">tui.pkg</pkg-ref>
+  <pkg-ref id="org.opf.cli" version="@VERSION@">cli.pkg</pkg-ref>
+</installer-gui-script>

@@ -70,6 +70,8 @@ jobs:
             goarch: arm64
           - goos: windows
             goarch: amd64
+          - goos: windows
+            goarch: arm64
           - goos: darwin
             goarch: amd64
           - goos: darwin
@@ -281,6 +283,95 @@ jobs:
           retention-days: 7
 
   # --------------------------------------------------------------------------
+  # 2a. Fyne GUI for linux/arm64 and windows/arm64.
+  # --------------------------------------------------------------------------
+  build-gui-linux-arm64:
+    name: Build GUI (linux/arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Install Fyne v2.8 ARM64 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            gcc pkg-config file \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev
+
+      - name: Build and package opf-gui for linux/arm64
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -buildid=" -o dist/opf-gui-linux-arm64 ./cmd/opf-gui
+          file dist/opf-gui-linux-arm64
+          go version -m dist/opf-gui-linux-arm64 | awk 'NR==1'
+          tar -czf dist/opf-gui-linux-arm64.tar.gz -C dist opf-gui-linux-arm64
+          tar -tzf dist/opf-gui-linux-arm64.tar.gz | grep -qx opf-gui-linux-arm64
+          rm dist/opf-gui-linux-arm64
+          ls -l dist
+
+      - name: Upload linux/arm64 GUI
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-gui-linux-arm64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  build-gui-windows-arm64:
+    name: Build GUI (windows/arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Build opf-gui for windows/arm64 with fyne-cross
+        run: |
+          set -euo pipefail
+          go install github.com/fyne-io/fyne-cross@v1.6.3
+          "$(go env GOPATH)/bin/fyne-cross" windows -arch=arm64 \
+            -name opf-gui -app-id org.opf.gui -env GOTOOLCHAIN=auto ./cmd/opf-gui
+          unzip -o fyne-cross/dist/windows-arm64/opf-gui.zip -d fyne-cross/dist/windows-arm64
+          mkdir -p dist
+          cp fyne-cross/dist/windows-arm64/opf-gui.exe dist/opf-gui-windows-arm64.exe
+          file dist/opf-gui-windows-arm64.exe
+          zip -9 -j dist/opf-gui-windows-arm64.exe.zip dist/opf-gui-windows-arm64.exe
+          unzip -l dist/opf-gui-windows-arm64.exe.zip | grep -q opf-gui-windows-arm64.exe
+          rm dist/opf-gui-windows-arm64.exe
+          ls -l dist
+
+      - name: Upload windows/arm64 GUI
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-gui-windows-arm64
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
   # 2b. Fyne v2.8 desktop GUI for macOS (native Intel/Apple Silicon builds,
   #     published as .tar.gz because UPX cannot pack Mach-O).
   # --------------------------------------------------------------------------
@@ -338,12 +429,194 @@ jobs:
           retention-days: 7
 
   # --------------------------------------------------------------------------
+  # 2c. Native installers with four profiles (bundle, GUI, TUI, CLI):
+  #     Linux .run, Windows .zip (raw Go menu + MSI-free payload copy) and
+  #     macOS .pkg. Each asset is architecture-specific.
+  # --------------------------------------------------------------------------
+  build-installer-linux:
+    name: Build installer (linux)
+    needs: [build, build-gui-linux-arm64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: opf-*
+          merge-multiple: true
+
+      - name: Install makeself
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y makeself file
+
+      - name: Build Linux .run installers
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            payload="dist/installer-payload/${arch}"
+            mkdir -p "${payload}"
+            cp "dist/opf-cli-linux-${arch}" "${payload}/opf-cli"
+            cp "dist/opf-tui-linux-${arch}" "${payload}/opf-tui"
+            if [ "${arch}" = "amd64" ]; then
+              cp dist/opf-gui-linux-amd64 "${payload}/opf-gui"
+            else
+              tar -xzf dist/opf-gui-linux-arm64.tar.gz -C "${payload}" opf-gui-linux-arm64
+              mv "${payload}/opf-gui-linux-arm64" "${payload}/opf-gui"
+            fi
+            chmod 0755 "${payload}"/opf-*
+            bash scripts/installers/build-linux-installer.sh "${arch}" "${payload}" "dist/opf-installer-linux-${arch}.run"
+          done
+          ls -l dist/opf-installer-linux-*.run
+
+      - name: Test Linux installer (CLI profile)
+        run: |
+          set -euo pipefail
+          target="$(mktemp -d)"
+          OPF_INSTALL_PROFILE=cli OPF_INSTALL_PREFIX="${target}" ./dist/opf-installer-linux-amd64.run >/dev/null
+          test -x "${target}/bin/opf-cli"
+
+      - name: Upload Linux installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-installer-linux
+          path: dist/opf-installer-linux-*.run
+          if-no-files-found: error
+          retention-days: 7
+
+  build-installer-windows:
+    name: Build installer (windows)
+    needs: [build, build-gui, build-gui-windows-arm64]
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: opf-*
+          merge-multiple: true
+
+      - name: Assemble Windows payloads
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($arch in 'amd64','arm64') {
+            $payload = "dist\installer-payload\$arch"
+            New-Item -ItemType Directory -Force $payload | Out-Null
+            $tmp = "dist\unzip-$arch"
+            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force $tmp | Out-Null
+            Expand-Archive "dist\opf-cli-windows-$arch.exe.zip" -DestinationPath $tmp -Force
+            Copy-Item "$tmp\opf-cli-windows-$arch.exe" "$payload\opf-cli.exe" -Force
+            Remove-Item $tmp -Recurse -Force
+            New-Item -ItemType Directory -Force $tmp | Out-Null
+            Expand-Archive "dist\opf-tui-windows-$arch.exe.zip" -DestinationPath $tmp -Force
+            Copy-Item "$tmp\opf-tui-windows-$arch.exe" "$payload\opf-tui.exe" -Force
+            Remove-Item $tmp -Recurse -Force
+            New-Item -ItemType Directory -Force $tmp | Out-Null
+            Expand-Archive "dist\opf-gui-windows-$arch.exe.zip" -DestinationPath $tmp -Force
+            Copy-Item "$tmp\opf-gui-windows-$arch.exe" "$payload\opf-gui.exe" -Force
+            Remove-Item $tmp -Recurse -Force
+          }
+          Get-ChildItem dist\installer-payload -Recurse -File | Select-Object FullName,Length
+
+      - name: Build Windows installer zips
+        env:
+          OPF_TEST_INSTALLER: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          ./scripts/installers/build-windows-installer.ps1 -Arch amd64 -PayloadRoot dist\installer-payload -Version $version -OutDir dist\installers
+          ./scripts/installers/build-windows-installer.ps1 -Arch arm64 -PayloadRoot dist\installer-payload -Version $version -OutDir dist\installers
+
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-installer-windows
+          path: dist/installers/opf-installer-windows-*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  build-installer-darwin:
+    name: Build installer (${{ matrix.os }})
+    needs: [build, build-gui-darwin]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            goarch: amd64
+          - os: macos-15
+            goarch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: opf-*
+          merge-multiple: true
+
+      - name: Build macOS .pkg installer
+        env:
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          payload="dist/installer-payload/${GOARCH}"
+          mkdir -p "${payload}"
+          for pair in "opf-cli-darwin-${GOARCH}:opf-cli" "opf-tui-darwin-${GOARCH}:opf-tui" "opf-gui-darwin-${GOARCH}:opf-gui"; do
+            src="${pair%%:*}"
+            dst="${pair##*:}"
+            tar -xzf "dist/${src}.tar.gz" -C "${payload}" "${src}"
+            mv "${payload}/${src}" "${payload}/${dst}"
+          done
+          chmod 0755 "${payload}"/opf-*
+          version="${GITHUB_REF_NAME#v}"
+          bash scripts/installers/build-macos-installer.sh "${GOARCH}" "${payload}" "dist/opf-installer-darwin-${GOARCH}.pkg" "${version}"
+          pkgutil --payload-files "dist/opf-installer-darwin-${GOARCH}.pkg" | head -n 10
+
+      - name: Upload macOS installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-installer-darwin-${{ matrix.goarch }}
+          path: dist/*.pkg
+          if-no-files-found: error
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
   # 3. Collect every artifact, checksum them and publish the GitHub Release.
   #    Runs on ubuntu-latest, so coreutils' sha256sum is always available.
   # --------------------------------------------------------------------------
   release:
     name: Publish GitHub Release
-    needs: [build, build-gui, build-gui-darwin]
+    needs: [build, build-gui, build-gui-linux-arm64, build-gui-windows-arm64, build-gui-darwin, build-installer-linux, build-installer-windows, build-installer-darwin]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -367,17 +640,27 @@ jobs:
           opf-cli-linux-amd64
           opf-cli-linux-arm64
           opf-cli-windows-amd64.exe.zip
+          opf-cli-windows-arm64.exe.zip
           opf-cli-darwin-amd64.tar.gz
           opf-cli-darwin-arm64.tar.gz
           opf-tui-linux-amd64
           opf-tui-linux-arm64
           opf-tui-windows-amd64.exe.zip
+          opf-tui-windows-arm64.exe.zip
           opf-tui-darwin-amd64.tar.gz
           opf-tui-darwin-arm64.tar.gz
           opf-gui-linux-amd64
+          opf-gui-linux-arm64.tar.gz
           opf-gui-windows-amd64.exe.zip
+          opf-gui-windows-arm64.exe.zip
           opf-gui-darwin-amd64.tar.gz
           opf-gui-darwin-arm64.tar.gz
+          opf-installer-linux-amd64.run
+          opf-installer-linux-arm64.run
+          opf-installer-windows-amd64.zip
+          opf-installer-windows-arm64.zip
+          opf-installer-darwin-amd64.pkg
+          opf-installer-darwin-arm64.pkg
           "
           missing=0
           for asset in ${expected}; do
@@ -422,12 +705,41 @@ jobs:
           set -euo pipefail
           # The Windows .exe is intentionally raw; the zip only compresses the
           # download. Verify both archives contain the expected executable.
-          for archive in opf-cli-windows-amd64.exe.zip opf-tui-windows-amd64.exe.zip opf-gui-windows-amd64.exe.zip; do
+          for archive in opf-cli-windows-amd64.exe.zip opf-cli-windows-arm64.exe.zip opf-tui-windows-amd64.exe.zip opf-tui-windows-arm64.exe.zip opf-gui-windows-amd64.exe.zip opf-gui-windows-arm64.exe.zip; do
             test -s "${archive}"
             expected="$(basename "${archive}" .zip)"
             unzip -l "${archive}" | grep -q "${expected}"
           done
           echo "OK: Windows zip archives contain the raw executables."
+
+      - name: Verify installer assets
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          # Linux .run installers: execute the CLI profile into a temp prefix.
+          for arch in amd64 arm64; do
+            target="$(mktemp -d)"
+            OPF_INSTALL_PROFILE=cli OPF_INSTALL_PREFIX="${target}" "./opf-installer-linux-${arch}.run" >/dev/null
+            test -x "${target}/bin/opf-cli"
+            rm -rf "${target}"
+          done
+          # Windows .zip installers: menu EXE plus raw payload binaries.
+          for arch in amd64 arm64; do
+            archive="opf-installer-windows-${arch}.zip"
+            test -s "${archive}"
+            unzip -l "${archive}" | grep -q "opf-installer.exe"
+            unzip -l "${archive}" | grep -q "payload/opf-cli.exe"
+            unzip -l "${archive}" | grep -q "payload/opf-tui.exe"
+            unzip -l "${archive}" | grep -q "payload/opf-gui.exe"
+          done
+          # macOS .pkg installers: non-empty xar archives.
+          for arch in amd64 arm64; do
+            test -s "opf-installer-darwin-${arch}.pkg"
+            file "opf-installer-darwin-${arch}.pkg"
+          done
+          # Linux arm64 GUI archive.
+          tar -tzf opf-gui-linux-arm64.tar.gz | grep -qx opf-gui-linux-arm64
+          echo "OK: installer assets are complete."
 
       - name: Verify macOS tar.gz artifacts
         working-directory: dist
@@ -499,4 +811,5 @@ jobs:
             dist/opf-cli-*
             dist/opf-tui-*
             dist/opf-gui-*
+            dist/opf-installer-*
             dist/SHA256SUMS

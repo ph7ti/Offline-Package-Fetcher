@@ -4,6 +4,39 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-11-21
+
+Native installers for every supported OS and CPU, with four installation
+profiles.
+
+### Added
+
+- **Installers** for Linux (`.run`), Windows (`.zip` with a raw Go menu
+  installer + payload) and macOS (`.pkg`), for **amd64** and **arm64**.
+- Each installer offers **bundle** (GUI + TUI + CLI), **GUI only**, **TUI only**
+  and **CLI only**.
+- Windows installer copies the raw binaries to `%LocalAppData%\OPF`, adds the
+  folder to the per-user `PATH` and creates a Start Menu GUI shortcut. It uses
+  no packed setup and no `msiexec`, so Cortex XDR accepts it.
+- Linux `.run` installs to `/usr/local/bin` as root or `~/.local/bin`
+  otherwise and creates a GUI desktop entry.
+- macOS `.pkg` installs `OPF.app` to `/Applications` and CLI/TUI to
+  `/usr/local/bin`, with four installer choices.
+- **Windows arm64 CLI/TUI and GUI**, and **Linux arm64 GUI** artifacts.
+- Release now publishes 25 assets (12 CLI/TUI, 6 GUI, 6 installers and
+  `SHA256SUMS`).
+
+### Changed
+
+- Windows installation is now per-user and does not require elevation.
+- macOS package is unsigned; use **Open** from the context menu if Gatekeeper
+  blocks it.
+
+### Notes
+
+- The functional application code is unchanged from v0.2.4 except the TUI
+  version banner; this release adds packaging and installers.
+
 ## [0.2.4] - 2026-11-21
 
 GUI SQLite path fix.

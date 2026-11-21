@@ -98,3 +98,9 @@ desktop.ini
 
 # --- Agent / local orchestration state -------------------------------------
 .agent-teams/
+
+
+# Local packaging artifacts
+fyne-cross/
+Icon.png
+dist/

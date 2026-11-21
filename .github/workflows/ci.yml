@@ -132,6 +132,8 @@ jobs:
             goarch: arm64
           - goos: windows
             goarch: amd64
+          - goos: windows
+            goarch: arm64
           - goos: darwin
             goarch: amd64
           - goos: darwin
@@ -362,6 +364,99 @@ jobs:
           path: |
             dist/opf-gui-linux-amd64
             dist/opf-gui-windows-amd64.exe.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
+  # 3a. Fyne GUI for linux/arm64 (native arm64 runner) and windows/arm64
+  #     (fyne-cross MinGW ARM64 toolchain). The Linux binary is tar.gz because
+  #     UPX is not used on arm64; the Windows one is raw inside a zip.
+  # --------------------------------------------------------------------------
+  build-gui-linux-arm64:
+    name: Build GUI (linux/arm64)
+    needs: [test]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Install Fyne v2.8 ARM64 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            gcc pkg-config file \
+            libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev
+
+      - name: Build opf-gui for linux/arm64
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -buildid=" -o dist/opf-gui-linux-arm64 ./cmd/opf-gui
+          file dist/opf-gui-linux-arm64
+          go version -m dist/opf-gui-linux-arm64 | awk 'NR==1'
+          tar -czf dist/opf-gui-linux-arm64.tar.gz -C dist opf-gui-linux-arm64
+          tar -tzf dist/opf-gui-linux-arm64.tar.gz | grep -qx opf-gui-linux-arm64
+          rm dist/opf-gui-linux-arm64
+          ls -l dist
+
+      - name: Upload linux/arm64 GUI
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-gui-linux-arm64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  build-gui-windows-arm64:
+    name: Build GUI (windows/arm64)
+    needs: [test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Build opf-gui for windows/arm64 with fyne-cross
+        run: |
+          set -euo pipefail
+          go install github.com/fyne-io/fyne-cross@v1.6.3
+          "$(go env GOPATH)/bin/fyne-cross" windows -arch=arm64 \
+            -name opf-gui -app-id org.opf.gui -env GOTOOLCHAIN=auto ./cmd/opf-gui
+          unzip -o fyne-cross/dist/windows-arm64/opf-gui.zip -d fyne-cross/dist/windows-arm64
+          mkdir -p dist
+          cp fyne-cross/dist/windows-arm64/opf-gui.exe dist/opf-gui-windows-arm64.exe
+          file dist/opf-gui-windows-arm64.exe
+          zip -9 -j dist/opf-gui-windows-arm64.exe.zip dist/opf-gui-windows-arm64.exe
+          unzip -l dist/opf-gui-windows-arm64.exe.zip | grep -q opf-gui-windows-arm64.exe
+          rm dist/opf-gui-windows-arm64.exe
+          ls -l dist
+
+      - name: Upload windows/arm64 GUI
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-gui-windows-arm64
+          path: dist/*.zip
           if-no-files-found: error
           retention-days: 7
 

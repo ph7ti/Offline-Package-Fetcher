@@ -13,7 +13,7 @@
 
 **Baixe pacotes Linux e o conjunto completo de dependências para ambientes isolados — e, quando fizer sentido, transfira por SSH/SFTP e instale no destino.**
 
-Versão **0.2.4** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
+Versão **0.2.5** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
 
 ---
 
@@ -84,7 +84,7 @@ Métodos de fetch:
 
 Arquiteturas reconhecidas: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` e `i386`/`i686` (normalizadas por família: `amd64` no APT, `x86_64` no RPM, entre outras).
 
-Limites conhecidos da v0.2.4:
+Limites conhecidos da v0.2.5:
 
 - **macOS** é plataforma secundária e requer Docker para baixar pacotes.
 - **WSL** atende apenas Ubuntu/Debian (APT); famílias RPM/APK exigem Docker.
@@ -137,10 +137,24 @@ O núcleo depende apenas de interfaces (`PackageFetcher`, `DependencyResolver`, 
 
 ## Instalação
 
-### A. Binários da release
+### A. Instaladores (recomendado)
 
-1. Abra [a página da release v0.2.4](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.4).
-2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto. Cada release publica 15 ativos: `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe.zip`, `opf-cli-darwin-amd64.tar.gz`, `opf-cli-darwin-arm64.tar.gz`, as mesmas cinco variantes de `opf-tui`, `opf-gui-linux-amd64`, `opf-gui-windows-amd64.exe.zip`, `opf-gui-darwin-amd64.tar.gz`, `opf-gui-darwin-arm64.tar.gz` e `SHA256SUMS`. Binários Linux usam UPX; executáveis Windows são publicados **brutos dentro de `.zip`** (extraia com `Expand-Archive` ou qualquer ferramenta zip); binários macOS ficam em `.tar.gz` (extraia com `tar -xzf <ativo>.tar.gz`).
+Cada instalador oferece quatro perfis: **bundle** (GUI + TUI + CLI), **somente GUI**, **somente TUI** e **somente CLI**.
+
+| Plataforma | Ativo do instalador |
+|:---|:---|
+| Linux amd64 / arm64 | `opf-installer-linux-amd64.run`, `opf-installer-linux-arm64.run` |
+| Windows amd64 / arm64 | `opf-installer-windows-amd64.zip`, `opf-installer-windows-arm64.zip` |
+| macOS amd64 / arm64 | `opf-installer-darwin-amd64.pkg`, `opf-installer-darwin-arm64.pkg` |
+
+- **Windows:** extraia o `.zip` e execute `opf-installer.exe`; escolha um dos quatro perfis. Ele instala em `%LocalAppData%\OPF`, adiciona a pasta ao `PATH` do usuário e cria um atalho no Menu Iniciar para a GUI. O instalador e o payload são executáveis Go/Windows brutos (sem setup empacotado e sem `msiexec`), aceitos pelo Cortex XDR.
+- **Linux:** `chmod +x opf-installer-linux-amd64.run` e execute; escolha um perfil. Como root instala em `/usr/local/bin`; caso contrário, em `~/.local/bin`, e cria uma entrada de desktop para a GUI. Não interativo: `OPF_INSTALL_PROFILE=bundle ./opf-installer-linux-amd64.run`.
+- **macOS:** abra o `.pkg` e selecione uma opção; instala o `OPF.app` em `/Applications` e CLI/TUI em `/usr/local/bin`. O pacote não é assinado; use **Abrir** no menu de contexto se o Gatekeeper bloquear.
+
+### B. Binários da release
+
+1. Abra [a página da release v0.2.5](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.5).
+2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto. Cada release publica 25 ativos: CLI/TUI para linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64 e darwin/arm64; GUI para linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64 e darwin/arm64; os seis instaladores acima; e `SHA256SUMS`. Binários Linux usam UPX; executáveis Windows são publicados **brutos dentro de `.zip`** (extraia com `Expand-Archive` ou qualquer ferramenta zip); binários macOS ficam em `.tar.gz` (extraia com `tar -xzf <ativo>.tar.gz`).
 3. Confira a integridade do download:
 
 ```bash
@@ -159,7 +173,7 @@ Os binários `opf-cli` e `opf-tui` são estáticos (`CGO_ENABLED=0`). O `opf-gui
 
 Os ativos Linux de CLI/TUI e GUI recebem strip com `-trimpath -ldflags "-s -w -buildid="` e são comprimidos com UPX (`--best --lzma`): no linux/amd64, o CLI cai de 14,5 MB para 4,7 MB, a TUI de 15,4 MB para 4,9 MB e a GUI de 33,8 MB para 12,3 MB. Executáveis Windows **não usam UPX** — o Cortex XDR bloqueia PE empacotado — e são publicados brutos dentro de `.zip` (~6,1/6,4 MB para CLI/TUI e ~15,6 MB para a GUI). Binários macOS não podem ser empacotados pelo UPX e são publicados como `.tar.gz` (~5,6–6,3 MB em vez de 13,8–15,5 MB). Assinatura de código com certificado confiável é recomendada para ampliar a confiança, mas não é necessária para o Cortex XDR executar o binário Windows extraído.
 
-### B. Compilar do código (Linux e macOS)
+### C. Compilar do código (Linux e macOS)
 
 ```bash
 git clone https://github.com/ph7ti/Offline-Package-Fetcher.git
@@ -176,7 +190,7 @@ make build-linux    # bin/opf-cli-linux-amd64
 
 Os alvos do Makefile usam as flags de produção `-trimpath -ldflags "-s -w -buildid="`, então builds locais ficam alinhados aos binários publicados nesse aspecto. No Linux e no Windows, `make compress` opcionalmente empacota os binários com UPX (`--best --lzma`) e verifica cada um com `upx -t`; binários macOS não são tocados porque o UPX não empacota Mach-O.
 
-### C. Compilar no Windows (PowerShell)
+### D. Compilar no Windows (PowerShell)
 
 ```powershell
 # Go 1.27.4 instalado e disponível no PATH (go version => go1.27.4)
@@ -186,7 +200,7 @@ go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-cli.exe ./cmd/opf-cli
 go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-tui.exe ./cmd/opf-tui
 ```
 
-### D. GUI (Fyne)
+### E. GUI (Fyne)
 
 ```bash
 make build-gui      # bin/opf-gui — exige CGO_ENABLED=1 e as libs gráficas
@@ -363,6 +377,6 @@ O OPF foi desenvolvido com **apoio intensivo de ferramentas de IA** — geraçã
 
 ## Versão
 
-**Versão 0.2.4** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
+**Versão 0.2.5** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
 
 [English](../README.md) | **Português (BR)**
