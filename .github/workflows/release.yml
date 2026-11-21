@@ -435,7 +435,7 @@ jobs:
   # --------------------------------------------------------------------------
   build-installer-linux:
     name: Build installer (linux)
-    needs: [build, build-gui-linux-arm64]
+    needs: [build, build-gui, build-gui-linux-arm64]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
