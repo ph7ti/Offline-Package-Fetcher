@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2"
 
 	"opf/internal/core"
+	"opf/internal/i18n"
 )
 
 type guiReporter struct {
@@ -20,23 +21,23 @@ var _ core.PipelineReporter = (*guiReporter)(nil)
 func (r *guiReporter) StepStarted(step int, name string) {
 	fyne.Do(func() {
 		r.ui.markStep(step, "[▶]")
-		r.ui.progressText.SetText(fmt.Sprintf("Passo %d/%d: %s", step, core.TotalEtapas, name))
+		r.ui.progressText.SetText(i18n.T("Passo %d/%d: %s", step, core.TotalEtapas, name))
 	})
 }
 
 func (r *guiReporter) StepFinished(step int, name string) {
 	fyne.Do(func() {
 		r.ui.markStep(step, "[✔]")
-		r.ui.progressText.SetText(fmt.Sprintf("Passo %d/%d concluído: %s", step, core.TotalEtapas, name))
+		r.ui.progressText.SetText(i18n.T("Passo %d/%d concluído: %s", step, core.TotalEtapas, name))
 	})
 }
 
 func (r *guiReporter) StepFailed(step int, name string, err error) {
 	fyne.Do(func() {
 		r.ui.markStep(step, "[✘]")
-		r.ui.progressText.SetText(fmt.Sprintf("Falha no passo %d/%d: %s", step, core.TotalEtapas, name))
+		r.ui.progressText.SetText(i18n.T("Falha no passo %d/%d: %s", step, core.TotalEtapas, name))
 		if err != nil {
-			r.ui.appendLog("[erro] " + err.Error())
+			r.ui.appendLog(i18n.T("[erro]") + " " + err.Error())
 		}
 	})
 }
@@ -52,9 +53,9 @@ func (r *guiReporter) Progress(stage string, current, total int64) {
 				value = 1
 			}
 			r.ui.progressBar.SetValue(value)
-			r.ui.progressText.SetText(fmt.Sprintf("%s: %d/%d", stage, current, total))
+			r.ui.progressText.SetText(fmt.Sprintf("%s: %d/%d", i18n.T(stage), current, total))
 		} else {
-			r.ui.progressText.SetText(stage)
+			r.ui.progressText.SetText(i18n.T(stage))
 		}
 	})
 }

@@ -21,6 +21,7 @@ import (
 	opfapp "opf/internal/app"
 	"opf/internal/core"
 	"opf/internal/fetcher"
+	"opf/internal/i18n"
 	"opf/internal/inspector"
 	"opf/internal/installer"
 	"opf/internal/observability"
@@ -31,19 +32,98 @@ import (
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		fmt.Fprintln(os.Stderr, "opf-cli:", err)
 		os.Exit(1)
 	}
 }
 
+// applyLanguageFlag selects the interface language before the flags are
+// registered so that usage text and flag descriptions are already translated.
+// An explicit -lang/--lang value wins over OPF_LANG; auto (or no flag at all)
+// follows OPF_LANG and then the operating system language.
+func applyLanguageFlag(args []string) error {
+	value, found, hasValue := scanLanguageFlag(args)
+	if !found {
+		i18n.SetFromSetting(i18n.SettingAuto)
+		return nil
+	}
+	if !hasValue {
+		i18n.SetFromSetting(i18n.SettingAuto)
+		return errors.New(i18n.T("--lang exige um valor"))
+	}
+	normalized, ok := normalizeLanguageSetting(value)
+	if !ok {
+		i18n.SetFromSetting(i18n.SettingAuto)
+		return errors.New(i18n.T("--lang inválido: %q (use auto, en, pt-BR ou es)", value))
+	}
+	i18n.SetFromSetting(normalized)
+	return nil
+}
+
+// scanLanguageFlag looks for -lang/--lang in args before flag parsing. Both
+// "-lang value" and "-lang=value" (and the double-dash variants) are accepted;
+// like the flag package, the last occurrence wins.
+func scanLanguageFlag(args []string) (value string, found, hasValue bool) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			break
+		}
+		name, inlineValue, hasInline := strings.Cut(arg, "=")
+		if name != "-lang" && name != "--lang" {
+			continue
+		}
+		found, hasValue = true, true
+		switch {
+		case hasInline:
+			value = inlineValue
+		case i+1 < len(args):
+			value = args[i+1]
+			i++
+		default:
+			value, hasValue = "", false
+		}
+	}
+	return value, found, hasValue
+}
+
+// normalizeLanguageSetting mirrors the values accepted by i18n.Resolve.
+func normalizeLanguageSetting(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", i18n.SettingAuto:
+		return i18n.SettingAuto, true
+	case string(i18n.EN):
+		return string(i18n.EN), true
+	case strings.ToLower(string(i18n.PTBR)), "pt", "pt_br":
+		return string(i18n.PTBR), true
+	case string(i18n.ES):
+		return string(i18n.ES), true
+	default:
+		return "", false
+	}
+}
+
 func run(args []string) error {
+	if err := applyLanguageFlag(args); err != nil {
+		return err
+	}
+
 	fs := flag.NewFlagSet("opf-cli", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), i18n.T("Uso: opf-cli [opções]"))
+		fmt.Fprintln(fs.Output(), i18n.T("Opções:"))
+		fs.PrintDefaults()
+	}
 
-	target := fs.String("target", "", "destino no formato distro:versao (ex.: ubuntu:22.04, centos:7, alpine:3.20)")
-	arch := fs.String("arch", "", "arquitetura do destino (ex.: amd64 ou x86_64)")
+	fs.String("lang", i18n.SettingAuto, i18n.T("idioma da interface: auto, en, pt-BR ou es"))
+	target := fs.String("target", "", i18n.T("destino no formato distro:versao (ex.: ubuntu:22.04, centos:7, alpine:3.20)"))
+	arch := fs.String("arch", "", i18n.T("arquitetura do destino (ex.: amd64 ou x86_64)"))
 	var packages []string
-	fs.Func("pkg", "pacote a baixar; pode ser repetido ou separado por vírgula", func(value string) error {
+	fs.Func("pkg", i18n.T("pacote a baixar; pode ser repetido ou separado por vírgula"), func(value string) error {
 		for _, pkg := range strings.Split(value, ",") {
 			if pkg = strings.TrimSpace(pkg); pkg != "" {
 				packages = append(packages, pkg)
@@ -51,98 +131,98 @@ func run(args []string) error {
 		}
 		return nil
 	})
-	forceReinstall := fs.Bool("force-reinstall", false, "ignora o pré-check e reinstala pacotes já presentes")
-	imageOverride := fs.String("image", "", "imagem Docker alternativa (ex.: opf/centos-7:f3)")
-	fetchMethod := fs.String("fetch-method", "docker", "método de fetch: docker ou wsl")
-	wslDistro := fs.String("wsl-distro", "", "distro WSL registrada (padrão derivado de --target)")
-	tempDir := fs.String("temp-dir", "", "diretório base para temporários do host (padrão: SO)")
-	withOptional := fs.Bool("with-optional", false, "inclui dependências opcionais (Recommends/Suggests/Enhances ou weak deps)")
-	outDir := fs.String("out", "./opf-output", "diretório base de saída")
-	dbPath := fs.String("db", "./opf.db", "caminho do arquivo SQLite")
+	forceReinstall := fs.Bool("force-reinstall", false, i18n.T("ignora o pré-check e reinstala pacotes já presentes"))
+	imageOverride := fs.String("image", "", i18n.T("imagem Docker alternativa (ex.: opf/centos-7:f3)"))
+	fetchMethod := fs.String("fetch-method", "docker", i18n.T("método de fetch: docker ou wsl"))
+	wslDistro := fs.String("wsl-distro", "", i18n.T("distro WSL registrada (padrão derivado de --target)"))
+	tempDir := fs.String("temp-dir", "", i18n.T("diretório base para temporários do host (padrão: SO)"))
+	withOptional := fs.Bool("with-optional", false, i18n.T("inclui dependências opcionais (Recommends/Suggests/Enhances ou weak deps)"))
+	outDir := fs.String("out", "./opf-output", i18n.T("diretório base de saída"))
+	dbPath := fs.String("db", "./opf.db", i18n.T("caminho do arquivo SQLite"))
 
-	sshHost := fs.String("ssh-host", "", "host SSH do destino (habilita a transferência SFTP)")
-	sshPort := fs.Int("ssh-port", 22, "porta SSH do destino")
-	sshUser := fs.String("ssh-user", "", "usuário SSH do destino")
-	sshKey := fs.String("ssh-key", "", "caminho da chave privada SSH")
-	sshPassword := fs.String("ssh-password", "", "senha SSH, também usada para sudo -S (prefira a variável OPF_SSH_PASSWORD)")
-	sshKnownHosts := fs.String("ssh-known-hosts", "", "caminho do known_hosts (padrão: ~/.ssh/known_hosts)")
-	sshSkipHostKey := fs.Bool("ssh-insecure-skip-host-key", false, "ignora a verificação de host key SSH (inseguro; equivale a StrictHostKeyChecking=no)")
-	remoteDir := fs.String("remote-dir", "", "diretório remoto de destino (padrão: /tmp/opf-sessao-<id>)")
-	installAfter := fs.Bool("install", false, "instala no destino após enviar e validar os pacotes")
-	assumeYes := fs.Bool("yes", false, "confirma a instalação sem prompt (requer --install)")
-	useSudo := fs.Bool("sudo", false, "executa a instalação via sudo com a senha do usuário SSH")
-	syslogEnabled := fs.Bool("syslog", false, "envia eventos ao Syslog externo")
-	syslogHost := fs.String("syslog-host", "", "host do Syslog externo")
-	syslogPort := fs.Int("syslog-port", 514, "porta do Syslog")
-	syslogProto := fs.String("syslog-proto", "udp", "protocolo do Syslog: udp ou tcp")
-	syslogTag := fs.String("syslog-tag", "opf", "tag RFC 5424")
-	exportJSON := fs.String("export-json", "", "exporta o relatório JSON neste caminho")
-	exportMarkdown := fs.String("export-markdown", "", "exporta o relatório Markdown neste caminho")
+	sshHost := fs.String("ssh-host", "", i18n.T("host SSH do destino (habilita a transferência SFTP)"))
+	sshPort := fs.Int("ssh-port", 22, i18n.T("porta SSH do destino"))
+	sshUser := fs.String("ssh-user", "", i18n.T("usuário SSH do destino"))
+	sshKey := fs.String("ssh-key", "", i18n.T("caminho da chave privada SSH"))
+	sshPassword := fs.String("ssh-password", "", i18n.T("senha SSH, também usada para sudo -S (prefira a variável OPF_SSH_PASSWORD)"))
+	sshKnownHosts := fs.String("ssh-known-hosts", "", i18n.T("caminho do known_hosts (padrão: ~/.ssh/known_hosts)"))
+	sshSkipHostKey := fs.Bool("ssh-insecure-skip-host-key", false, i18n.T("ignora a verificação de host key SSH (inseguro; equivale a StrictHostKeyChecking=no)"))
+	remoteDir := fs.String("remote-dir", "", i18n.T("diretório remoto de destino (padrão: /tmp/opf-sessao-<id>)"))
+	installAfter := fs.Bool("install", false, i18n.T("instala no destino após enviar e validar os pacotes"))
+	assumeYes := fs.Bool("yes", false, i18n.T("confirma a instalação sem prompt (requer --install)"))
+	useSudo := fs.Bool("sudo", false, i18n.T("executa a instalação via sudo com a senha do usuário SSH"))
+	syslogEnabled := fs.Bool("syslog", false, i18n.T("envia eventos ao Syslog externo"))
+	syslogHost := fs.String("syslog-host", "", i18n.T("host do Syslog externo"))
+	syslogPort := fs.Int("syslog-port", 514, i18n.T("porta do Syslog"))
+	syslogProto := fs.String("syslog-proto", "udp", i18n.T("protocolo do Syslog: udp ou tcp"))
+	syslogTag := fs.String("syslog-tag", "opf", i18n.T("tag RFC 5424"))
+	exportJSON := fs.String("export-json", "", i18n.T("exporta o relatório JSON neste caminho"))
+	exportMarkdown := fs.String("export-markdown", "", i18n.T("exporta o relatório Markdown neste caminho"))
 	var jumpSpecs []string
-	fs.Func("ssh-jump", "jump host no formato [usuario@]host[:porta]; pode ser repetido, na ordem do salto", func(value string) error {
+	fs.Func("ssh-jump", i18n.T("jump host no formato [usuario@]host[:porta]; pode ser repetido, na ordem do salto"), func(value string) error {
 		jumpSpecs = append(jumpSpecs, value)
 		return nil
 	})
 	var jumpAuths []string
-	fs.Func("ssh-jump-auth", "autenticação da ponte: password, key ou key+password; repetir na ordem de --ssh-jump", func(value string) error {
+	fs.Func("ssh-jump-auth", i18n.T("autenticação da ponte: password, key ou key+password; repetir na ordem de --ssh-jump"), func(value string) error {
 		jumpAuths = append(jumpAuths, value)
 		return nil
 	})
 	var jumpPasswords []string
-	fs.Func("ssh-jump-password", "senha da ponte (prefira a variável OPF_SSH_JUMP_PASSWORDS com array JSON)", func(value string) error {
+	fs.Func("ssh-jump-password", i18n.T("senha da ponte (prefira a variável OPF_SSH_JUMP_PASSWORDS com array JSON)"), func(value string) error {
 		jumpPasswords = append(jumpPasswords, value)
 		return nil
 	})
 	var jumpKeys []string
-	fs.Func("ssh-jump-key", "caminho da chave privada da ponte; repetir na ordem de --ssh-jump", func(value string) error {
+	fs.Func("ssh-jump-key", i18n.T("caminho da chave privada da ponte; repetir na ordem de --ssh-jump"), func(value string) error {
 		jumpKeys = append(jumpKeys, value)
 		return nil
 	})
 	var jumpKnownHosts []string
-	fs.Func("ssh-jump-known-hosts", "known_hosts da ponte; vazio herda --ssh-known-hosts", func(value string) error {
+	fs.Func("ssh-jump-known-hosts", i18n.T("known_hosts da ponte; vazio herda --ssh-known-hosts"), func(value string) error {
 		jumpKnownHosts = append(jumpKnownHosts, value)
 		return nil
 	})
 
-	repoConfigPath := fs.String("repo-config", "", "arquivo JSON com a lista de repositórios adicionais")
-	repoURL := fs.String("repo-url", "", "URL de um repositório adicional (modo simples)")
-	repoName := fs.String("repo-name", "private", "nome do repositório adicional no modo simples")
-	repoFamily := fs.String("repo-family", "", "família do repositório adicional: apt, rpm ou apk (padrão: família do alvo)")
-	repoKey := fs.String("repo-key", "", "arquivo local da chave do repositório adicional")
-	repoKeyURL := fs.String("repo-key-url", "", "URL da chave do repositório adicional")
-	repoCA := fs.String("repo-ca", "", "arquivo da CA customizada do repositório adicional")
-	repoAPTSuite := fs.String("repo-apt-suite", "", "suite/distribuição do repositório APT")
-	repoAPTComponents := fs.String("repo-apt-components", "main", "components do repositório APT, separados por vírgula")
-	repoAPTFlat := fs.Bool("repo-apt-flat", false, "repositório APT flat (sem suite/components)")
-	repoInsecureTLS := fs.Bool("repo-insecure-tls", false, "ignora a verificação TLS do repositório adicional (inseguro)")
-	repoInsecureGPG := fs.Bool("repo-insecure-gpg", false, "ignora a assinatura GPG do repositório adicional (inseguro)")
+	repoConfigPath := fs.String("repo-config", "", i18n.T("arquivo JSON com a lista de repositórios adicionais"))
+	repoURL := fs.String("repo-url", "", i18n.T("URL de um repositório adicional (modo simples)"))
+	repoName := fs.String("repo-name", "private", i18n.T("nome do repositório adicional no modo simples"))
+	repoFamily := fs.String("repo-family", "", i18n.T("família do repositório adicional: apt, rpm ou apk (padrão: família do alvo)"))
+	repoKey := fs.String("repo-key", "", i18n.T("arquivo local da chave do repositório adicional"))
+	repoKeyURL := fs.String("repo-key-url", "", i18n.T("URL da chave do repositório adicional"))
+	repoCA := fs.String("repo-ca", "", i18n.T("arquivo da CA customizada do repositório adicional"))
+	repoAPTSuite := fs.String("repo-apt-suite", "", i18n.T("suite/distribuição do repositório APT"))
+	repoAPTComponents := fs.String("repo-apt-components", "main", i18n.T("components do repositório APT, separados por vírgula"))
+	repoAPTFlat := fs.Bool("repo-apt-flat", false, i18n.T("repositório APT flat (sem suite/components)"))
+	repoInsecureTLS := fs.Bool("repo-insecure-tls", false, i18n.T("ignora a verificação TLS do repositório adicional (inseguro)"))
+	repoInsecureGPG := fs.Bool("repo-insecure-gpg", false, i18n.T("ignora a assinatura GPG do repositório adicional (inseguro)"))
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return fmt.Errorf("argumentos inesperados: %s", strings.Join(fs.Args(), " "))
+		return errors.New(i18n.T("argumentos inesperados: %s", strings.Join(fs.Args(), " ")))
 	}
 	if len(packages) == 0 {
-		return errors.New("--pkg é obrigatório")
+		return errors.New(i18n.T("--pkg é obrigatório"))
 	}
 	if *outDir == "" {
-		return errors.New("--out não pode ser vazio")
+		return errors.New(i18n.T("--out não pode ser vazio"))
 	}
 	if *dbPath == "" {
-		return errors.New("--db não pode ser vazio")
+		return errors.New(i18n.T("--db não pode ser vazio"))
 	}
 	if *assumeYes && !*installAfter {
-		return errors.New("--yes exige --install")
+		return errors.New(i18n.T("--yes exige --install"))
 	}
 	if *useSudo && !*installAfter {
-		return errors.New("--sudo exige --install")
+		return errors.New(i18n.T("--sudo exige --install"))
 	}
 	if *installAfter && *sshHost == "" {
-		return errors.New("--install exige --ssh-host")
+		return errors.New(i18n.T("--install exige --ssh-host"))
 	}
 	if *syslogEnabled && *syslogHost == "" {
-		return errors.New("--syslog exige --syslog-host")
+		return errors.New(i18n.T("--syslog exige --syslog-host"))
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -159,25 +239,25 @@ func run(args []string) error {
 			"ssh-jump-auth", "ssh-jump-password", "ssh-jump-key", "ssh-jump-known-hosts",
 		} {
 			if setFlags[name] {
-				return fmt.Errorf("--%s exige --ssh-host", name)
+				return errors.New(i18n.T("--%s exige --ssh-host", name))
 			}
 		}
 	} else {
 		if *sshUser == "" {
-			return errors.New("--ssh-user é obrigatório com --ssh-host")
+			return errors.New(i18n.T("--ssh-user é obrigatório com --ssh-host"))
 		}
 		if *sshPort <= 0 || *sshPort > 65535 {
-			return fmt.Errorf("--ssh-port inválida: %d", *sshPort)
+			return errors.New(i18n.T("--ssh-port inválida: %d", *sshPort))
 		}
 		password := *sshPassword
 		if password == "" {
 			password = os.Getenv("OPF_SSH_PASSWORD")
 		}
 		if *sshKey == "" && password == "" {
-			return errors.New("informe --ssh-key ou --ssh-password/OPF_SSH_PASSWORD")
+			return errors.New(i18n.T("informe --ssh-key ou --ssh-password/OPF_SSH_PASSWORD"))
 		}
 		if password != "" {
-			logger.Warn("autenticação SSH por senha habilitada; prefira chave privada")
+			logger.Warn(i18n.T("autenticação SSH por senha habilitada; prefira chave privada"))
 		}
 		sshPasswordValue = password
 		sshConfig = core.SSHConfig{
@@ -196,7 +276,7 @@ func run(args []string) error {
 			return err
 		}
 		if len(envPasswords) > 0 && len(envPasswords) != len(jumpSpecs) {
-			return fmt.Errorf("OPF_SSH_JUMP_PASSWORDS tem %d valores para %d pontes", len(envPasswords), len(jumpSpecs))
+			return errors.New(i18n.T("OPF_SSH_JUMP_PASSWORDS tem %d valores para %d pontes", len(envPasswords), len(jumpSpecs)))
 		}
 		jumps, jumpErr := buildJumpConfigs(sshConfig, jumpSpecs, jumpAuths, jumpPasswordValues, jumpKeys, jumpKnownHosts)
 		if jumpErr != nil {
@@ -204,7 +284,7 @@ func run(args []string) error {
 		}
 		sshConfig.JumpHosts = jumps
 		if len(jumps) > 0 {
-			logger.Warn("pontes SSH configuradas; credenciais ficam apenas em memória")
+			logger.Warn(i18n.T("pontes SSH configuradas; credenciais ficam apenas em memória"))
 		}
 		transferManager = transfer.NewSSHTransferManager()
 	}
@@ -213,13 +293,13 @@ func run(args []string) error {
 	archWasEmpty := strings.TrimSpace(*arch) == ""
 	if targetWasEmpty || archWasEmpty {
 		if *sshHost == "" {
-			return errors.New("--target e --arch são obrigatórios sem --ssh-host")
+			return errors.New(i18n.T("--target e --arch são obrigatórios sem --ssh-host"))
 		}
 		detectCtx, detectCancel := context.WithTimeout(context.Background(), 60*time.Second)
 		info, detectErr := opfapp.DetectRemoteTarget(detectCtx, sshConfig)
 		detectCancel()
 		if detectErr != nil {
-			return fmt.Errorf("detectar target remoto: %w", detectErr)
+			return fmt.Errorf("%s: %w", i18n.T("detectar target remoto"), detectErr)
 		}
 		if targetWasEmpty {
 			*target = info.OS + ":" + info.Version
@@ -230,15 +310,15 @@ func run(args []string) error {
 		if archWasEmpty {
 			*arch = info.Arch
 		}
-		logger.Info("target detectado por SSH", "os", info.OS, "version", info.Version, "arch", info.Arch, "family", info.Family, "tested", info.Tested, "image", info.Image)
+		logger.Info(i18n.T("target detectado por SSH"), "os", info.OS, "version", info.Version, "arch", info.Arch, "family", info.Family, "tested", info.Tested, "image", info.Image)
 		if !info.Tested {
-			logger.Warn("preset do target detectado ainda não foi validado em integração; use configuração avançada se necessário")
+			logger.Warn(i18n.T("preset do target detectado ainda não foi validado em integração; use configuração avançada se necessário"))
 		}
 	}
 
 	targetOS, targetVersion, ok := strings.Cut(*target, ":")
 	if !ok || targetOS == "" || targetVersion == "" {
-		return fmt.Errorf("--target inválido: %q (esperado distro:versao)", *target)
+		return errors.New(i18n.T("--target inválido: %q (esperado distro:versao)", *target))
 	}
 	targetOS = strings.ToLower(targetOS)
 	if targetOS == "rocky" {
@@ -252,21 +332,21 @@ func run(args []string) error {
 	case "alpine":
 		family = "apk"
 	default:
-		return fmt.Errorf("--target não suportado: %q", targetOS)
+		return errors.New(i18n.T("--target não suportado: %q", targetOS))
 	}
 	method := strings.ToLower(strings.TrimSpace(*fetchMethod))
 	if method != "docker" && method != "wsl" {
-		return fmt.Errorf("--fetch-method inválido: %q (use docker ou wsl)", *fetchMethod)
+		return errors.New(i18n.T("--fetch-method inválido: %q (use docker ou wsl)", *fetchMethod))
 	}
 	if method == "wsl" {
 		if family != "apt" {
-			return errors.New("--fetch-method wsl suporta apenas Ubuntu/Debian (APT)")
+			return errors.New(i18n.T("--fetch-method wsl suporta apenas Ubuntu/Debian (APT)"))
 		}
 		if strings.TrimSpace(*imageOverride) != "" {
-			return errors.New("--image não se aplica a --fetch-method wsl")
+			return errors.New(i18n.T("--image não se aplica a --fetch-method wsl"))
 		}
 	} else if strings.TrimSpace(*wslDistro) != "" {
-		return errors.New("--wsl-distro exige --fetch-method wsl")
+		return errors.New(i18n.T("--wsl-distro exige --fetch-method wsl"))
 	}
 
 	repositories, err := resolveRepositories(repositoryFlags{
@@ -301,7 +381,7 @@ func run(args []string) error {
 	var installOptions []installer.Option
 	if *useSudo {
 		if sshPasswordValue == "" {
-			return errors.New("--sudo exige --ssh-password/OPF_SSH_PASSWORD para autenticar o sudo com a senha do usuário SSH")
+			return errors.New(i18n.T("--sudo exige --ssh-password/OPF_SSH_PASSWORD para autenticar o sudo com a senha do usuário SSH"))
 		}
 		installOptions = append(installOptions, installer.WithSudoPassword(sshPasswordValue))
 	}
@@ -330,7 +410,7 @@ func run(args []string) error {
 		Proto: *syslogProto, Tag: *syslogTag, Logger: logger,
 	})
 	if err != nil {
-		return fmt.Errorf("configurar syslog: %w", err)
+		return fmt.Errorf("%s: %w", i18n.T("configurar syslog"), err)
 	}
 	if syslogSink != nil {
 		defer func() {
@@ -409,36 +489,36 @@ func run(args []string) error {
 		return err
 	}
 
-	fmt.Printf("sessão %d concluída\n", result.SessaoID)
-	fmt.Printf("artefatos: %d\n", len(result.Artifacts))
-	fmt.Printf("saída: %s\n", result.OutputDir)
-	fmt.Printf("manifesto: %s\n", result.CaminhoManifesto)
+	fmt.Printf("%s\n", i18n.T("sessão %d concluída", result.SessaoID))
+	fmt.Printf("%s\n", i18n.T("artefatos: %d", len(result.Artifacts)))
+	fmt.Printf("%s\n", i18n.T("saída: %s", result.OutputDir))
+	fmt.Printf("%s\n", i18n.T("manifesto: %s", result.CaminhoManifesto))
 	if result.RemoteDir != "" {
-		fmt.Printf("destino remoto: %s\n", result.RemoteDir)
+		fmt.Printf("%s\n", i18n.T("destino remoto: %s", result.RemoteDir))
 	}
 	if *exportJSON != "" || *exportMarkdown != "" {
 		relatorio, reportErr := observability.GerarRelatorio(ctx, repo, result.SessaoID)
 		if reportErr != nil {
-			return fmt.Errorf("gerar relatório: %w", reportErr)
+			return fmt.Errorf("%s: %w", i18n.T("gerar relatório"), reportErr)
 		}
 		if *exportJSON != "" {
 			if err := observability.SalvarJSON(*exportJSON, relatorio); err != nil {
 				return err
 			}
-			fmt.Printf("relatório JSON: %s\n", *exportJSON)
+			fmt.Printf("%s\n", i18n.T("relatório JSON: %s", *exportJSON))
 		}
 		if *exportMarkdown != "" {
 			if err := observability.SalvarMarkdown(*exportMarkdown, relatorio); err != nil {
 				return err
 			}
-			fmt.Printf("relatório Markdown: %s\n", *exportMarkdown)
+			fmt.Printf("%s\n", i18n.T("relatório Markdown: %s", *exportMarkdown))
 		}
 	}
 	if result.Installed {
-		fmt.Println("instalação: concluída")
+		fmt.Println(i18n.T("instalação: concluída"))
 	}
 	if result.InstallDeclined {
-		fmt.Println("instalação: recusada; pacotes permanecem enviados")
+		fmt.Println(i18n.T("instalação: recusada; pacotes permanecem enviados"))
 	}
 	return nil
 }
@@ -447,7 +527,7 @@ func confirmInstallation(r io.Reader, w io.Writer, count int, target string, ass
 	if assumeYes {
 		return true, nil
 	}
-	fmt.Fprintf(w, "Instalar %d pacotes em %s? [y/N] ", count, target)
+	fmt.Fprint(w, i18n.T("Instalar %d pacotes em %s? [y/N] ", count, target))
 	reader := bufio.NewReader(r)
 	line, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -490,7 +570,7 @@ func (f repositoryFlags) simpleSet(setFlags map[string]bool) bool {
 func resolveRepositories(flags repositoryFlags, targetFamily string, setFlags map[string]bool) ([]core.PackageRepository, error) {
 	simple := flags.simpleSet(setFlags)
 	if flags.configPath != "" && simple {
-		return nil, errors.New("--repo-config é mutuamente exclusivo com as flags --repo-*")
+		return nil, errors.New(i18n.T("--repo-config é mutuamente exclusivo com as flags --repo-*"))
 	}
 	if flags.configPath != "" {
 		repos, err := loadRepositoryConfigFile(flags.configPath)
@@ -503,7 +583,7 @@ func resolveRepositories(flags repositoryFlags, targetFamily string, setFlags ma
 		return nil, nil
 	}
 	if strings.TrimSpace(flags.url) == "" {
-		return nil, errors.New("--repo-url é obrigatório com as flags --repo-*")
+		return nil, errors.New(i18n.T("--repo-url é obrigatório com as flags --repo-*"))
 	}
 
 	effectiveFamily := strings.ToLower(strings.TrimSpace(flags.family))
@@ -513,7 +593,7 @@ func resolveRepositories(flags repositoryFlags, targetFamily string, setFlags ma
 	if effectiveFamily != core.RepositoryFamilyAPT {
 		for _, name := range []string{"repo-apt-suite", "repo-apt-components", "repo-apt-flat"} {
 			if setFlags[name] {
-				return nil, fmt.Errorf("--%s aplica-se apenas a repositórios APT", name)
+				return nil, errors.New(i18n.T("--%s aplica-se apenas a repositórios APT", name))
 			}
 		}
 	}
@@ -534,7 +614,7 @@ func resolveRepositories(flags repositoryFlags, targetFamily string, setFlags ma
 	}
 	if effectiveFamily == core.RepositoryFamilyAPT {
 		if flags.aptFlat && setFlags["repo-apt-components"] {
-			return nil, errors.New("--repo-apt-components não se aplica a --repo-apt-flat")
+			return nil, errors.New(i18n.T("--repo-apt-components não se aplica a --repo-apt-flat"))
 		}
 		repo.Suite = flags.aptSuite
 		repo.Flat = flags.aptFlat
@@ -548,26 +628,26 @@ func resolveRepositories(flags repositoryFlags, targetFamily string, setFlags ma
 func loadRepositoryConfigFile(path string) ([]core.PackageRepository, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("ler --repo-config: %w", err)
+		return nil, fmt.Errorf("%s: %w", i18n.T("ler --repo-config"), err)
 	}
 	if !info.Mode().IsRegular() {
-		return nil, errors.New("--repo-config deve apontar para um arquivo regular")
+		return nil, errors.New(i18n.T("--repo-config deve apontar para um arquivo regular"))
 	}
 	if info.Size() > repositoryConfigLimit {
-		return nil, fmt.Errorf("--repo-config excede %d bytes", repositoryConfigLimit)
+		return nil, errors.New(i18n.T("--repo-config excede %d bytes", repositoryConfigLimit))
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("ler --repo-config: %w", err)
+		return nil, fmt.Errorf("%s: %w", i18n.T("ler --repo-config"), err)
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
 	var repos []core.PackageRepository
 	if err := decoder.Decode(&repos); err != nil {
-		return nil, fmt.Errorf("interpretar --repo-config: %w", err)
+		return nil, fmt.Errorf("%s: %w", i18n.T("interpretar --repo-config"), err)
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return nil, errors.New("--repo-config contém conteúdo extra após o array JSON")
+		return nil, errors.New(i18n.T("--repo-config contém conteúdo extra após o array JSON"))
 	}
 	baseDir := filepath.Dir(path)
 	for i := range repos {
@@ -608,7 +688,7 @@ func buildJumpConfigs(base core.SSHConfig, specs, auths, passwords, keys, knownH
 	for i, spec := range specs {
 		host, port, user, err := parseJumpSpec(spec, base.User)
 		if err != nil {
-			return nil, fmt.Errorf("--ssh-jump %d: %w", i+1, err)
+			return nil, fmt.Errorf("%s: %w", i18n.T("--ssh-jump %d", i+1), err)
 		}
 		inputs = append(inputs, opfapp.SSHJumpInput{
 			Host:       host,
@@ -626,7 +706,7 @@ func buildJumpConfigs(base core.SSHConfig, specs, auths, passwords, keys, knownH
 func parseJumpSpec(spec, defaultUser string) (host, port, user string, err error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
-		return "", "", "", errors.New("jump host vazio")
+		return "", "", "", errors.New(i18n.T("jump host vazio"))
 	}
 
 	user = defaultUser
@@ -634,11 +714,11 @@ func parseJumpSpec(spec, defaultUser string) (host, port, user string, err error
 		user = spec[:at]
 		spec = spec[at+1:]
 		if user == "" {
-			return "", "", "", errors.New("jump host sem usuário antes de @")
+			return "", "", "", errors.New(i18n.T("jump host sem usuário antes de @"))
 		}
 	}
 	if spec == "" {
-		return "", "", "", errors.New("jump host sem endereço")
+		return "", "", "", errors.New(i18n.T("jump host sem endereço"))
 	}
 
 	host = spec
@@ -646,7 +726,7 @@ func parseJumpSpec(spec, defaultUser string) (host, port, user string, err error
 	case strings.HasPrefix(spec, "["):
 		parsedHost, parsedPort, splitErr := net.SplitHostPort(spec)
 		if splitErr != nil {
-			return "", "", "", fmt.Errorf("endereço IPv6 do jump inválido: %w", splitErr)
+			return "", "", "", fmt.Errorf("%s: %w", i18n.T("endereço IPv6 do jump inválido"), splitErr)
 		}
 		if _, portErr := parsePort(parsedPort); portErr != nil {
 			return "", "", "", portErr
@@ -655,14 +735,14 @@ func parseJumpSpec(spec, defaultUser string) (host, port, user string, err error
 	case strings.Count(spec, ":") == 1:
 		parsedHost, parsedPort, splitErr := net.SplitHostPort(spec)
 		if splitErr != nil {
-			return "", "", "", fmt.Errorf("endereço do jump inválido: %w", splitErr)
+			return "", "", "", fmt.Errorf("%s: %w", i18n.T("endereço do jump inválido"), splitErr)
 		}
 		if _, portErr := parsePort(parsedPort); portErr != nil {
 			return "", "", "", portErr
 		}
 		host, port = parsedHost, parsedPort
 	case strings.Count(spec, ":") > 1:
-		return "", "", "", fmt.Errorf("IPv6 no jump exige brackets: %q", spec)
+		return "", "", "", errors.New(i18n.T("IPv6 no jump exige brackets: %q", spec))
 	}
 	return host, port, user, nil
 }
@@ -679,16 +759,16 @@ func validateJumpFlagCounts(specs, auths, passwords, keys, knownHosts []string) 
 			{"--ssh-jump-known-hosts", knownHosts},
 		} {
 			if len(item.values) > 0 {
-				return fmt.Errorf("%s exige --ssh-jump", item.name)
+				return errors.New(i18n.T("%s exige --ssh-jump", item.name))
 			}
 		}
 		return nil
 	}
 	if len(auths) == 0 {
-		return errors.New("--ssh-jump exige --ssh-jump-auth (password, key ou key+password) por ponte")
+		return errors.New(i18n.T("--ssh-jump exige --ssh-jump-auth (password, key ou key+password) por ponte"))
 	}
 	if len(auths) != len(specs) {
-		return fmt.Errorf("--ssh-jump-auth tem %d valores para %d pontes", len(auths), len(specs))
+		return errors.New(i18n.T("--ssh-jump-auth tem %d valores para %d pontes", len(auths), len(specs)))
 	}
 	for _, item := range []struct {
 		name   string
@@ -699,7 +779,7 @@ func validateJumpFlagCounts(specs, auths, passwords, keys, knownHosts []string) 
 		{"--ssh-jump-known-hosts", knownHosts},
 	} {
 		if len(item.values) != 0 && len(item.values) != len(specs) {
-			return fmt.Errorf("%s tem %d valores para %d pontes", item.name, len(item.values), len(specs))
+			return errors.New(i18n.T("%s tem %d valores para %d pontes", item.name, len(item.values), len(specs)))
 		}
 	}
 	return nil
@@ -712,14 +792,14 @@ func decodeJumpPasswordsEnv(raw string) ([]string, error) {
 	}
 	var values []string
 	if err := json.Unmarshal([]byte(raw), &values); err != nil {
-		return nil, errors.New("OPF_SSH_JUMP_PASSWORDS deve ser um array JSON de strings")
+		return nil, errors.New(i18n.T("OPF_SSH_JUMP_PASSWORDS deve ser um array JSON de strings"))
 	}
 	return values, nil
 }
 
 func mergeJumpPasswords(flagValues, envValues []string) ([]string, error) {
 	if len(flagValues) > 0 && len(envValues) > 0 {
-		return nil, errors.New("use --ssh-jump-password ou OPF_SSH_JUMP_PASSWORDS, não ambos")
+		return nil, errors.New(i18n.T("use --ssh-jump-password ou OPF_SSH_JUMP_PASSWORDS, não ambos"))
 	}
 	if len(envValues) > 0 {
 		return envValues, nil
@@ -737,10 +817,10 @@ func jumpValueAt(values []string, index int) string {
 func parsePort(value string) (int, error) {
 	port, err := strconv.Atoi(value)
 	if err != nil {
-		return 0, fmt.Errorf("porta do jump inválida: %q", value)
+		return 0, errors.New(i18n.T("porta do jump inválida: %q", value))
 	}
 	if port <= 0 || port > 65535 {
-		return 0, fmt.Errorf("porta do jump fora do intervalo: %d", port)
+		return 0, errors.New(i18n.T("porta do jump fora do intervalo: %d", port))
 	}
 	return port, nil
 }

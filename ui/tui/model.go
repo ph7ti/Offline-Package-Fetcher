@@ -13,6 +13,7 @@ import (
 
 	"opf/internal/config"
 	"opf/internal/core"
+	"opf/internal/i18n"
 	"opf/internal/store"
 )
 
@@ -168,12 +169,13 @@ type Model struct {
 	pkgInput     *textinput.Model
 	sudoPassword *textinput.Model
 
-	settingsTemp    *textinput.Model
-	settingsTimeout *textinput.Model
-	syslogHost      *textinput.Model
-	syslogPort      *textinput.Model
-	syslogProto     *textinput.Model
-	syslogTag       *textinput.Model
+	settingsTemp     *textinput.Model
+	settingsTimeout  *textinput.Model
+	settingsLanguage *textinput.Model
+	syslogHost       *textinput.Model
+	syslogPort       *textinput.Model
+	syslogProto      *textinput.Model
+	syslogTag        *textinput.Model
 
 	events   chan tea.Msg
 	reporter *tuiReporter
@@ -190,72 +192,217 @@ func Run() error {
 func newModel() *Model {
 	cwd, _ := os.Getwd()
 	settingsPath, _ := config.DefaultPath()
-	settings, _ := config.Load(settingsPath)
+	settings, settingsErr := config.Load(settingsPath)
+	if settingsErr != nil {
+		settings = config.Default()
+	}
+	i18n.SetFromSetting(settings.Language)
 	m := &Model{
 		screen:       screenWelcome,
 		settingsPath: settingsPath,
 		settings:     settings,
 		events:       make(chan tea.Msg, 2000),
 	}
-	m.targetInput = input("ubuntu", "ubuntu, debian, centos, alpine")
-	m.versionInput = input("22.04", "versão")
-	m.archInput = input("amd64", "amd64 ou x86_64")
-	m.methodInput = input("docker", "docker, wsl ou auto")
-	m.imageInput = input("", "opcional: opf/centos-7:f3")
-	m.wslInput = input("", "opcional: ubuntu-24.04")
-	m.outInput = input(filepath.Join(cwd, "opf-output"), "diretório de saída")
-	m.dbInput = input(filepath.Join(cwd, "opf.db"), "arquivo SQLite")
+	m.targetInput = input("ubuntu", "")
+	m.versionInput = input("22.04", "")
+	m.archInput = input("amd64", "")
+	m.methodInput = input("docker", "")
+	m.imageInput = input("", "")
+	m.wslInput = input("", "")
+	m.outInput = input(filepath.Join(cwd, "opf-output"), "")
+	m.dbInput = input(filepath.Join(cwd, "opf.db"), "")
 
-	m.sshHost = input("", "host do destino")
-	m.sshPort = input("22", "porta")
-	m.sshUser = input("", "usuário")
-	m.sshKey = input("", "caminho da chave (opcional)")
-	m.sshPassword = passwordInput("senha SSH/conta")
-	m.knownHosts = input("", "known_hosts (padrão do sistema)")
-	m.remoteDir = input("", "/tmp/opf-sessao (padrão)")
+	m.sshHost = input("", "")
+	m.sshPort = input("22", "")
+	m.sshUser = input("", "")
+	m.sshKey = input("", "")
+	m.sshPassword = passwordInput("")
+	m.knownHosts = input("", "")
+	m.remoteDir = input("", "")
 
-	m.jumpHostEdit = input("", "host da ponte")
-	m.jumpPortEdit = input("22", "porta")
-	m.jumpUserEdit = input("", "usuário da ponte")
+	m.jumpHostEdit = input("", "")
+	m.jumpPortEdit = input("22", "")
+	m.jumpUserEdit = input("", "")
 	m.jumpAuthEdit = newJumpDraft().authMode
-	m.jumpKeyEdit = input("", "caminho da chave")
-	m.jumpPasswordEdit = passwordInput("senha da ponte")
-	m.jumpKnownHostsEdit = input("", "known_hosts (padrão do destino)")
+	m.jumpKeyEdit = input("", "")
+	m.jumpPasswordEdit = passwordInput("")
+	m.jumpKnownHostsEdit = input("", "")
 
 	m.repoKeySourceEdit = repoKeySourceFile
-	m.repoNameEdit = input("", "nome do repositório")
-	m.repoURLEdit = input("", "https://repo.interno/caminho")
-	m.repoKeyValueEdit = input("", "chave do repositório")
-	m.repoCAEdit = input("", "CA customizada (opcional)")
-	m.repoAPTSuiteEdit = input("", "bookworm, jammy")
-	m.repoAPTComponentsEdit = input("main", "main")
+	m.repoNameEdit = input("", "")
+	m.repoURLEdit = input("", "")
+	m.repoKeyValueEdit = input("", "")
+	m.repoCAEdit = input("", "")
+	m.repoAPTSuiteEdit = input("", "")
+	m.repoAPTComponentsEdit = input("main", "")
 
-	m.pkgInput = input("", "ex.: vim, curl")
-	m.sudoPassword = passwordInput("senha da conta para sudo")
-	m.settingsTemp = input(settings.TempDir, "diretório temporário")
-	m.settingsTimeout = input(strconv.Itoa(settings.StageTimeoutSecs), "segundos")
+	m.pkgInput = input("", "")
+	m.sudoPassword = passwordInput("")
+	m.settingsTemp = input(settings.TempDir, "")
+	m.settingsTimeout = input(strconv.Itoa(settings.StageTimeoutSecs), "")
+	m.settingsLanguage = input(languageSettingValue(settings.Language), "")
 	m.syslogEnabled = settings.SyslogEnabled
-	m.syslogHost = input(settings.SyslogHost, "host do Syslog")
+	m.syslogHost = input(settings.SyslogHost, "")
 	port := settings.SyslogPort
 	if port == 0 {
 		port = 514
 	}
-	m.syslogPort = input(strconv.Itoa(port), "porta")
+	m.syslogPort = input(strconv.Itoa(port), "")
 	proto := settings.SyslogProto
 	if proto == "" {
 		proto = "udp"
 	}
-	m.syslogProto = input(proto, "udp ou tcp")
+	m.syslogProto = input(proto, "")
 	tag := settings.SyslogTag
 	if tag == "" {
 		tag = "opf"
 	}
-	m.syslogTag = input(tag, "tag RFC 5424")
+	m.syslogTag = input(tag, "")
 
 	m.reporter = &tuiReporter{events: m.events}
+	m.localizeInputs()
 	m.openStore()
 	m.resetSteps()
 	return m
+}
+
+// localizeInputs refreshes the placeholder hints so they follow the active
+// interface language, including after a language change in the settings screen.
+func (m *Model) localizeInputs() {
+	if m.targetInput != nil {
+		m.targetInput.Placeholder = "ubuntu, debian, centos, alpine"
+	}
+	if m.repoURLEdit != nil {
+		m.repoURLEdit.Placeholder = "https://repo.interno/caminho"
+	}
+	if m.repoAPTSuiteEdit != nil {
+		m.repoAPTSuiteEdit.Placeholder = "bookworm, jammy"
+	}
+	if m.repoAPTComponentsEdit != nil {
+		m.repoAPTComponentsEdit.Placeholder = "main"
+	}
+	if m.versionInput != nil {
+		m.versionInput.Placeholder = i18n.T("versão")
+	}
+	if m.archInput != nil {
+		m.archInput.Placeholder = i18n.T("amd64 ou x86_64")
+	}
+	if m.methodInput != nil {
+		m.methodInput.Placeholder = i18n.T("docker, wsl ou auto")
+	}
+	if m.imageInput != nil {
+		m.imageInput.Placeholder = i18n.T("opcional: opf/centos-7:f3")
+	}
+	if m.wslInput != nil {
+		m.wslInput.Placeholder = i18n.T("opcional: ubuntu-24.04")
+	}
+	if m.outInput != nil {
+		m.outInput.Placeholder = i18n.T("diretório de saída")
+	}
+	if m.dbInput != nil {
+		m.dbInput.Placeholder = i18n.T("arquivo SQLite")
+	}
+	if m.sshHost != nil {
+		m.sshHost.Placeholder = i18n.T("host do destino")
+	}
+	if m.sshPort != nil {
+		m.sshPort.Placeholder = i18n.T("porta")
+	}
+	if m.sshUser != nil {
+		m.sshUser.Placeholder = i18n.T("usuário")
+	}
+	if m.sshKey != nil {
+		m.sshKey.Placeholder = i18n.T("caminho da chave (opcional)")
+	}
+	if m.sshPassword != nil {
+		m.sshPassword.Placeholder = i18n.T("senha SSH/conta")
+	}
+	if m.knownHosts != nil {
+		m.knownHosts.Placeholder = i18n.T("known_hosts (padrão do sistema)")
+	}
+	if m.remoteDir != nil {
+		m.remoteDir.Placeholder = i18n.T("/tmp/opf-sessao (padrão)")
+	}
+	if m.jumpHostEdit != nil {
+		m.jumpHostEdit.Placeholder = i18n.T("host da ponte")
+	}
+	if m.jumpPortEdit != nil {
+		m.jumpPortEdit.Placeholder = i18n.T("porta")
+	}
+	if m.jumpUserEdit != nil {
+		m.jumpUserEdit.Placeholder = i18n.T("usuário da ponte")
+	}
+	if m.jumpKeyEdit != nil {
+		m.jumpKeyEdit.Placeholder = i18n.T("caminho da chave")
+	}
+	if m.jumpPasswordEdit != nil {
+		m.jumpPasswordEdit.Placeholder = i18n.T("senha da ponte")
+	}
+	if m.jumpKnownHostsEdit != nil {
+		m.jumpKnownHostsEdit.Placeholder = i18n.T("known_hosts (padrão do destino)")
+	}
+	if m.repoNameEdit != nil {
+		m.repoNameEdit.Placeholder = i18n.T("nome do repositório")
+	}
+	if m.repoKeyValueEdit != nil {
+		m.repoKeyValueEdit.Placeholder = i18n.T("chave do repositório")
+	}
+	if m.repoCAEdit != nil {
+		m.repoCAEdit.Placeholder = i18n.T("CA customizada (opcional)")
+	}
+	if m.pkgInput != nil {
+		m.pkgInput.Placeholder = i18n.T("ex.: vim, curl")
+	}
+	if m.sudoPassword != nil {
+		m.sudoPassword.Placeholder = i18n.T("senha da conta para sudo")
+	}
+	if m.settingsTemp != nil {
+		m.settingsTemp.Placeholder = i18n.T("diretório temporário")
+	}
+	if m.settingsTimeout != nil {
+		m.settingsTimeout.Placeholder = i18n.T("segundos")
+	}
+	if m.settingsLanguage != nil {
+		m.settingsLanguage.Placeholder = i18n.T("auto, en, pt-BR ou es")
+	}
+	if m.syslogHost != nil {
+		m.syslogHost.Placeholder = i18n.T("host do Syslog")
+	}
+	if m.syslogPort != nil {
+		m.syslogPort.Placeholder = i18n.T("porta")
+	}
+	if m.syslogProto != nil {
+		m.syslogProto.Placeholder = i18n.T("udp ou tcp")
+	}
+	if m.syslogTag != nil {
+		m.syslogTag.Placeholder = i18n.T("tag RFC 5424")
+	}
+}
+
+// languageSettingValue normalizes an empty persisted setting to "auto".
+func languageSettingValue(setting string) string {
+	if strings.TrimSpace(setting) == "" {
+		return i18n.SettingAuto
+	}
+	return setting
+}
+
+// normalizeLanguageSetting validates a language value typed in the TUI and
+// returns the canonical persisted form. It accepts "auto", "en", "pt-BR" and
+// "es" (case-insensitive), plus the common "pt"/"pt_BR" aliases.
+func normalizeLanguageSetting(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return i18n.SettingAuto, true
+	case "en":
+		return string(i18n.EN), true
+	case "pt-br", "pt", "pt_br":
+		return string(i18n.PTBR), true
+	case "es":
+		return string(i18n.ES), true
+	default:
+		return "", false
+	}
 }
 
 func input(value, placeholder string) *textinput.Model {
@@ -350,7 +497,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case targetDetectMsg:
 		if msg.err != nil {
-			m.errorMsg = "detecção: " + msg.err.Error()
+			m.errorMsg = i18n.T("detecção: %s", msg.err.Error())
 			return m, nil
 		}
 		m.targetInput.SetValue(msg.info.OS)
@@ -364,14 +511,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detectedJumps = msg.jumps
 		m.detectedText = fmt.Sprintf("%s %s (%s) • %s", msg.info.OS, msg.info.Version, msg.info.Arch, msg.info.Family)
 		if !msg.info.Tested {
-			m.detectedText += " • preset não validado; revise a configuração avançada (ctrl+a)"
+			m.detectedText += " " + i18n.T("• preset não validado; revise a configuração avançada (ctrl+a)")
 		}
 		return m, nil
 	case sshTestMsg:
 		if msg.err != nil {
-			m.errorMsg = "SSH: " + msg.err.Error()
+			m.errorMsg = i18n.T("SSH: %s", msg.err.Error())
 		} else {
-			m.errorMsg = "SSH: conexão validada com host key."
+			m.errorMsg = i18n.T("SSH: conexão validada com host key.")
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -587,7 +734,7 @@ func (m *Model) advance() (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case screenConfig:
 		if strings.TrimSpace(m.targetInput.Value()) == "" || strings.TrimSpace(m.versionInput.Value()) == "" || strings.TrimSpace(m.archInput.Value()) == "" {
-			m.errorMsg = "distro, versão e arquitetura são obrigatórias"
+			m.errorMsg = i18n.T("distro, versão e arquitetura são obrigatórias")
 			return m, nil
 		}
 		if _, err := m.buildRepositories(); err != nil {
@@ -605,11 +752,11 @@ func (m *Model) advance() (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if !m.manualTarget && (m.detectedText == "" || !m.detectedMatchesSSH()) {
-				m.errorMsg = "detectando o destino..."
+				m.errorMsg = i18n.T("detectando o destino...")
 				return m, m.detectTarget()
 			}
 			if strings.TrimSpace(m.versionInput.Value()) == "" || strings.TrimSpace(m.archInput.Value()) == "" {
-				m.errorMsg = "detecte o destino (ctrl+d) ou use a configuração avançada"
+				m.errorMsg = i18n.T("detecte o destino (ctrl+d) ou use a configuração avançada")
 				return m, nil
 			}
 			m.screen = screenPackages
@@ -659,74 +806,75 @@ func (m *Model) buildForm() {
 	switch m.screen {
 	case screenConfig:
 		m.form = []formItem{
-			{label: "Distro", input: m.targetInput},
-			{label: "Versão", input: m.versionInput},
-			{label: "Arquitetura", input: m.archInput},
-			{label: "Fetch (docker/wsl/auto)", input: m.methodInput},
-			{label: "Imagem Docker", input: m.imageInput},
-			{label: "Distro WSL", input: m.wslInput},
-			{label: "Saída", input: m.outInput},
-			{label: "SQLite", input: m.dbInput},
-			{label: "Incluir opcionais", toggle: &m.optional},
+			{label: i18n.T("Distro"), input: m.targetInput},
+			{label: i18n.T("Versão"), input: m.versionInput},
+			{label: i18n.T("Arquitetura"), input: m.archInput},
+			{label: i18n.T("Fetch (docker/wsl/auto)"), input: m.methodInput},
+			{label: i18n.T("Imagem Docker"), input: m.imageInput},
+			{label: i18n.T("Distro WSL"), input: m.wslInput},
+			{label: i18n.T("Saída"), input: m.outInput},
+			{label: i18n.T("SQLite"), input: m.dbInput},
+			{label: i18n.T("Incluir opcionais"), toggle: &m.optional},
 		}
 	case screenSSH:
 		m.form = []formItem{
-			{label: "Habilitar SSH", toggle: &m.sshEnabled},
-			{label: "Ignorar host key (inseguro)", toggle: &m.skipHostKey},
-			{label: "Host", input: m.sshHost},
-			{label: "Porta", input: m.sshPort},
-			{label: "Usuário", input: m.sshUser},
-			{label: "Chave privada", input: m.sshKey},
-			{label: "Senha da conta", input: m.sshPassword},
-			{label: "Known hosts", input: m.knownHosts},
-			{label: "Diretório remoto", input: m.remoteDir},
+			{label: i18n.T("Habilitar SSH"), toggle: &m.sshEnabled},
+			{label: i18n.T("Ignorar host key (inseguro)"), toggle: &m.skipHostKey},
+			{label: i18n.T("Host"), input: m.sshHost},
+			{label: i18n.T("Porta"), input: m.sshPort},
+			{label: i18n.T("Usuário"), input: m.sshUser},
+			{label: i18n.T("Chave privada"), input: m.sshKey},
+			{label: i18n.T("Senha da conta"), input: m.sshPassword},
+			{label: i18n.T("Known hosts"), input: m.knownHosts},
+			{label: i18n.T("Diretório remoto"), input: m.remoteDir},
 		}
 	case screenJumpEdit:
 		m.form = []formItem{
-			{label: "Host", input: m.jumpHostEdit},
-			{label: "Porta", input: m.jumpPortEdit},
-			{label: "Usuário", input: m.jumpUserEdit},
-			{label: "Autenticação", choice: &m.jumpAuthEdit, choices: []string{"password", "key", "key+password"}, choiceDisplay: jumpAuthDisplay},
-			{label: "Senha", input: m.jumpPasswordEdit},
-			{label: "Chave privada", input: m.jumpKeyEdit},
-			{label: "Known hosts", input: m.jumpKnownHostsEdit},
+			{label: i18n.T("Host"), input: m.jumpHostEdit},
+			{label: i18n.T("Porta"), input: m.jumpPortEdit},
+			{label: i18n.T("Usuário"), input: m.jumpUserEdit},
+			{label: i18n.T("Autenticação"), choice: &m.jumpAuthEdit, choices: []string{"password", "key", "key+password"}, choiceDisplay: jumpAuthDisplay},
+			{label: i18n.T("Senha"), input: m.jumpPasswordEdit},
+			{label: i18n.T("Chave privada"), input: m.jumpKeyEdit},
+			{label: i18n.T("Known hosts"), input: m.jumpKnownHostsEdit},
 		}
 	case screenRepoEdit:
 		m.form = []formItem{
-			{label: "Nome", input: m.repoNameEdit},
-			{label: "URL", input: m.repoURLEdit},
-			{label: "Chave", choice: &m.repoKeySourceEdit, choices: []string{repoKeySourceFile, repoKeySourceURL, repoKeySourceNone}, choiceDisplay: repoKeySourceDisplay},
-			{label: "Chave (arquivo/URL)", input: m.repoKeyValueEdit},
-			{label: "CA customizada", input: m.repoCAEdit},
+			{label: i18n.T("Nome"), input: m.repoNameEdit},
+			{label: i18n.T("URL"), input: m.repoURLEdit},
+			{label: i18n.T("Chave"), choice: &m.repoKeySourceEdit, choices: []string{repoKeySourceFile, repoKeySourceURL, repoKeySourceNone}, choiceDisplay: repoKeySourceDisplay},
+			{label: i18n.T("Chave (arquivo/URL)"), input: m.repoKeyValueEdit},
+			{label: i18n.T("CA customizada"), input: m.repoCAEdit},
 		}
 		if m.repoFamilyEdit == core.RepositoryFamilyAPT {
 			m.form = append(m.form,
-				formItem{label: "Suite APT", input: m.repoAPTSuiteEdit},
-				formItem{label: "Components APT", input: m.repoAPTComponentsEdit},
-				formItem{label: "Flat", toggle: &m.repoAPTFlatEdit},
+				formItem{label: i18n.T("Suite APT"), input: m.repoAPTSuiteEdit},
+				formItem{label: i18n.T("Components APT"), input: m.repoAPTComponentsEdit},
+				formItem{label: i18n.T("Flat"), toggle: &m.repoAPTFlatEdit},
 			)
 		}
 		if m.repoFamilyEdit != core.RepositoryFamilyAPK {
-			m.form = append(m.form, formItem{label: "TLS inseguro", toggle: &m.repoInsecureTLSEdit})
+			m.form = append(m.form, formItem{label: i18n.T("TLS inseguro"), toggle: &m.repoInsecureTLSEdit})
 		}
 	case screenPackages:
 		m.form = []formItem{
-			{label: "Pacotes (vírgula)", input: m.pkgInput},
-			{label: "Opcionais", toggle: &m.optional},
-			{label: "Forçar reinstalação", toggle: &m.force},
-			{label: "Instalar", toggle: &m.install},
-			{label: "Usar sudo", toggle: &m.sudo},
-			{label: "Senha do sudo", input: m.sudoPassword},
+			{label: i18n.T("Pacotes (vírgula)"), input: m.pkgInput},
+			{label: i18n.T("Opcionais"), toggle: &m.optional},
+			{label: i18n.T("Forçar reinstalação"), toggle: &m.force},
+			{label: i18n.T("Instalar"), toggle: &m.install},
+			{label: i18n.T("Usar sudo"), toggle: &m.sudo},
+			{label: i18n.T("Senha do sudo"), input: m.sudoPassword},
 		}
 	case screenSettings:
 		m.form = []formItem{
-			{label: "Diretório temporário", input: m.settingsTemp},
-			{label: "Timeout (segundos)", input: m.settingsTimeout},
-			{label: "Habilitar Syslog", toggle: &m.syslogEnabled},
-			{label: "Host Syslog", input: m.syslogHost},
-			{label: "Porta Syslog", input: m.syslogPort},
-			{label: "Protocolo Syslog", input: m.syslogProto},
-			{label: "Tag Syslog", input: m.syslogTag},
+			{label: i18n.T("Idioma da interface"), input: m.settingsLanguage},
+			{label: i18n.T("Diretório temporário"), input: m.settingsTemp},
+			{label: i18n.T("Timeout (segundos)"), input: m.settingsTimeout},
+			{label: i18n.T("Habilitar Syslog"), toggle: &m.syslogEnabled},
+			{label: i18n.T("Host Syslog"), input: m.syslogHost},
+			{label: i18n.T("Porta Syslog"), input: m.syslogPort},
+			{label: i18n.T("Protocolo Syslog"), input: m.syslogProto},
+			{label: i18n.T("Tag Syslog"), input: m.syslogTag},
 		}
 	}
 	if len(m.form) > 0 && m.form[0].input != nil {

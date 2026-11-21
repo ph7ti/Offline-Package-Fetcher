@@ -13,7 +13,7 @@
 
 **Baixe pacotes Linux e o conjunto completo de dependências para ambientes isolados — e, quando fizer sentido, transfira por SSH/SFTP e instale no destino.**
 
-Versão **0.1.0** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
+Versão **0.2.0** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
 
 ---
 
@@ -65,6 +65,7 @@ Fluxo resumido de uma sessão:
 - **Repositórios adicionais** (APT/RPM/APK) usados apenas no ambiente isolado, com GPG/TLS verificados por padrão.
 - **Relatórios JSON e Markdown** por sessão, além de **Syslog externo** opcional (UDP/TCP, RFC 5424).
 - **Histórico local** em SQLite (sessões, pacotes, eventos, etapas e pacotes solicitados) com arquivamento lógico.
+- **Idioma da interface seguindo o sistema operacional** (inglês quando o idioma do SO não é suportado), com inglês, português do Brasil e espanhol disponíveis; selecionável em **Configurações Globais** (GUI e TUI) ou por `--lang`/`OPF_LANG` na CLI.
 
 ## Alvos suportados
 
@@ -83,13 +84,14 @@ Métodos de fetch:
 
 Arquiteturas reconhecidas: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` e `i386`/`i686` (normalizadas por família: `amd64` no APT, `x86_64` no RPM, entre outras).
 
-Limites conhecidos da v0.1.0:
+Limites conhecidos da v0.2.0:
 
 - **macOS** é plataforma secundária e requer Docker para baixar pacotes.
 - **WSL** atende apenas Ubuntu/Debian (APT); famílias RPM/APK exigem Docker.
 - **Instalação remota** exige SSH configurado, confirmação explícita e, se o usuário não for `root`, a senha da conta para `sudo`.
 - **GUI** não compila com `CGO_ENABLED=0` (o binário resultante é apenas um stub com mensagem de erro).
 - **Repositórios adicionais** não aceitam autenticação (usuário/senha) nesta versão.
+- **Idioma da interface:** os diagnósticos de baixo nível permanecem em português do Brasil mesmo com outro idioma selecionado: saída dos gerenciadores de pacotes e do ambiente isolado (apt/dpkg, dnf/yum/rpm, apk, ferramentas Docker/WSL), causas de erro das camadas de fetch/transferência/instalação/armazenamento e parte das linhas de log interna.
 - **Testes de integração** dependem da build tag `integration` e de Docker (e WSL nos testes específicos).
 
 ## Como funciona (arquitetura)
@@ -136,8 +138,8 @@ O núcleo depende apenas de interfaces (`PackageFetcher`, `DependencyResolver`, 
 
 ### A. Binários da release
 
-1. Abra [a página da release v0.1.0](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.1.0).
-2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto.
+1. Abra [a página da release v0.2.0](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.0).
+2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto. Cada release publica 12 ativos: `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe`, `opf-cli-darwin-amd64`, `opf-cli-darwin-arm64`, as mesmas cinco variantes de `opf-tui`, `opf-gui-linux-amd64` e `SHA256SUMS`.
 3. Confira a integridade do download:
 
 ```bash
@@ -149,6 +151,8 @@ Get-FileHash .\opf-cli.exe -Algorithm SHA256
 ```
 
 Os binários `opf-cli` e `opf-tui` são estáticos (`CGO_ENABLED=0`). O `opf-gui` depende das bibliotecas gráficas da máquina, por isso é compilado com `CGO_ENABLED=1` (`make build-gui`).
+
+Os ativos Linux recebem strip com `-trimpath -ldflags "-s -w -buildid="` e são comprimidos com UPX (`--best --lzma`), o que reduz o tamanho em 63–72%: CLI 14,5 MB → 4,5 MB, TUI 15,4 MB → 4,9 MB e GUI 33,8 MB → 12,3 MB no linux/amd64. Os ativos Windows e macOS são publicados sem compressão porque produtos de proteção de endpoint bloqueiam PE empacotados com UPX e o UPX não empacota binários Mach-O.
 
 ### B. Compilar do código (Linux e macOS)
 
@@ -165,14 +169,16 @@ make build-tui      # bin/opf-tui
 make build-linux    # bin/opf-cli-linux-amd64
 ```
 
+Os alvos do Makefile usam as flags de produção `-trimpath -ldflags "-s -w -buildid="`, então builds locais ficam alinhados aos binários publicados nesse aspecto. No Linux, `make compress` opcionalmente empacota os binários com UPX (`--best --lzma`) e verifica cada um com `upx -t`; binários Windows e macOS não são comprimidos por decisão de projeto.
+
 ### C. Compilar no Windows (PowerShell)
 
 ```powershell
 # Go 1.27.4 instalado e disponível no PATH (go version => go1.27.4)
 New-Item -ItemType Directory -Force bin | Out-Null
 $env:CGO_ENABLED = '0'
-go build -trimpath -ldflags "-s -w" -o bin/opf-cli.exe ./cmd/opf-cli
-go build -trimpath -ldflags "-s -w" -o bin/opf-tui.exe ./cmd/opf-tui
+go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-cli.exe ./cmd/opf-cli
+go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-tui.exe ./cmd/opf-tui
 ```
 
 ### D. GUI (Fyne)
@@ -352,6 +358,6 @@ O OPF foi desenvolvido com **apoio intensivo de ferramentas de IA** — geraçã
 
 ## Versão
 
-**Versão 0.1.0** — primeira release pública. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
+**Versão 0.2.0** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
 
 [English](../README.md) | **Português (BR)**

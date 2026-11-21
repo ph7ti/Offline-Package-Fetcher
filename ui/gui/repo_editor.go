@@ -15,9 +15,47 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"opf/internal/core"
+	"opf/internal/i18n"
 )
 
+// repoKeySources holds the Portuguese source labels used as internal values.
+// repoKeySourceOptions renders the translated labels shown to the user.
 var repoKeySources = []string{"Arquivo", "URL", "Sem chave (inseguro)"}
+
+// repoKeySourceVariants lists the known translations for each key source so the
+// semantic index survives an interface language change.
+var repoKeySourceVariants = [][]string{
+	{"Arquivo", "File", "Archivo"},
+	{"URL"},
+	{"Sem chave (inseguro)", "No key (insecure)", "Sin clave (inseguro)"},
+}
+
+func repoKeySourceOptions() []string {
+	return []string{
+		i18n.T(repoKeySources[0]),
+		i18n.T(repoKeySources[1]),
+		i18n.T(repoKeySources[2]),
+	}
+}
+
+func repoKeySourceLabel(index int) string {
+	if index < 0 || index >= len(repoKeySources) {
+		index = 0
+	}
+	return i18n.T(repoKeySources[index])
+}
+
+func repoKeySourceIndex(selected string) int {
+	selected = strings.TrimSpace(selected)
+	for index := range repoKeySources {
+		for _, variant := range repoKeySourceVariants[index] {
+			if selected == variant || selected == i18n.T(repoKeySources[index]) {
+				return index
+			}
+		}
+	}
+	return 0
+}
 
 type repoRow struct {
 	family string
@@ -38,40 +76,50 @@ func newRepoRow(family string) *repoRow {
 		family:        family,
 		name:          widget.NewEntry(),
 		url:           widget.NewEntry(),
-		keySource:     widget.NewSelect(repoKeySources, nil),
+		keySource:     widget.NewSelect(repoKeySourceOptions(), nil),
 		keyValue:      widget.NewEntry(),
 		caFile:        widget.NewEntry(),
 		aptSuite:      widget.NewEntry(),
 		aptComponents: widget.NewEntry(),
-		aptFlat:       widget.NewCheck("Repositório flat (sem suite/components)", nil),
-		insecureTLS:   widget.NewCheck("Ignorar verificação TLS (inseguro)", nil),
+		aptFlat:       widget.NewCheck(i18n.T("Repositório flat (sem suite/components)"), nil),
+		insecureTLS:   widget.NewCheck(i18n.T("Ignorar verificação TLS (inseguro)"), nil),
 	}
-	row.name.SetPlaceHolder("nome do repositório")
-	row.url.SetPlaceHolder("https://repo.interno/caminho")
-	row.keyValue.SetPlaceHolder("chave do repositório (arquivo ou URL)")
-	row.caFile.SetPlaceHolder("CA customizada (opcional)")
-	row.aptSuite.SetPlaceHolder("ex.: bookworm, jammy")
+	row.keySource.PlaceHolder = i18n.T("Selecione a origem da chave")
+	row.name.SetPlaceHolder(i18n.T("nome do repositório"))
+	row.url.SetPlaceHolder(i18n.T("https://repo.interno/caminho"))
+	row.keyValue.SetPlaceHolder(i18n.T("chave do repositório (arquivo ou URL)"))
+	row.caFile.SetPlaceHolder(i18n.T("CA customizada (opcional)"))
+	row.aptSuite.SetPlaceHolder(i18n.T("ex.: bookworm, jammy"))
 	row.aptComponents.SetText("main")
 	row.keySource.OnChanged = func(string) { row.syncKeySource() }
 	row.aptFlat.OnChanged = func(bool) { row.syncAPTFields() }
-	row.keySource.SetSelected(repoKeySources[0])
+	row.keySource.SetSelected(repoKeySourceLabel(0))
 	row.syncKeySource()
 	row.syncFamilyFields()
 	return row
 }
 
+// refreshKeySourceOptions rebuilds the key-source labels in the active language
+// while keeping the selected source.
+func (r *repoRow) refreshKeySourceOptions() {
+	index := repoKeySourceIndex(r.keySource.Selected)
+	r.keySource.Options = repoKeySourceOptions()
+	r.keySource.SetSelected(repoKeySourceLabel(index))
+	r.keySource.Refresh()
+}
+
 func (r *repoRow) syncKeySource() {
-	none := r.keySource.Selected == repoKeySources[2]
-	if none {
+	index := repoKeySourceIndex(r.keySource.Selected)
+	if index == 2 {
 		r.keyValue.Disable()
 		return
 	}
 	r.keyValue.Enable()
-	switch r.keySource.Selected {
-	case repoKeySources[1]:
-		r.keyValue.SetPlaceHolder("https://repo.interno/chave.asc")
+	switch index {
+	case 1:
+		r.keyValue.SetPlaceHolder(i18n.T("https://repo.interno/chave.asc"))
 	default:
-		r.keyValue.SetPlaceHolder("caminho da chave no host")
+		r.keyValue.SetPlaceHolder(i18n.T("caminho da chave no host"))
 	}
 }
 
@@ -111,10 +159,10 @@ func (r *repoRow) repository() core.PackageRepository {
 		CAFile:                strings.TrimSpace(r.caFile.Text),
 		InsecureSkipTLSVerify: r.insecureTLS.Checked,
 	}
-	switch r.keySource.Selected {
-	case repoKeySources[1]:
+	switch repoKeySourceIndex(r.keySource.Selected) {
+	case 1:
 		repo.KeyURL = strings.TrimSpace(r.keyValue.Text)
-	case repoKeySources[2]:
+	case 2:
 		repo.InsecureSkipGPGCheck = true
 	default:
 		repo.KeyFile = strings.TrimSpace(r.keyValue.Text)
@@ -137,13 +185,13 @@ func (r *repoRow) setRepository(repo core.PackageRepository) {
 	r.insecureTLS.SetChecked(repo.InsecureSkipTLSVerify)
 	switch {
 	case repo.InsecureSkipGPGCheck:
-		r.keySource.SetSelected(repoKeySources[2])
+		r.keySource.SetSelected(repoKeySourceLabel(2))
 		r.keyValue.SetText("")
 	case repo.KeyURL != "":
-		r.keySource.SetSelected(repoKeySources[1])
+		r.keySource.SetSelected(repoKeySourceLabel(1))
 		r.keyValue.SetText(repo.KeyURL)
 	default:
-		r.keySource.SetSelected(repoKeySources[0])
+		r.keySource.SetSelected(repoKeySourceLabel(0))
 		r.keyValue.SetText(repo.KeyFile)
 	}
 	r.aptSuite.SetText(repo.Suite)
@@ -180,7 +228,7 @@ func (u *UI) repositoryFamilyOrApt() string {
 func (u *UI) addRepoRow() {
 	family := u.repositoryFamilyOrApt()
 	row := newRepoRow(family)
-	row.name.SetText(fmt.Sprintf("Repositório %d", len(u.repoRows)+1))
+	row.name.SetText(i18n.T("Repositório %d", len(u.repoRows)+1))
 	u.repoRows = append(u.repoRows, row)
 	u.refreshRepoList()
 }
@@ -228,7 +276,7 @@ func (u *UI) buildRepositories() ([]core.PackageRepository, error) {
 	}
 	repos, err := core.NormalizePackageRepositories(u.repositoryInputs(), family)
 	if err != nil {
-		return nil, fmt.Errorf("repositórios adicionais: %w", err)
+		return nil, fmt.Errorf("%s: %w", i18n.T("repositórios adicionais"), err)
 	}
 	return repos, nil
 }
@@ -252,12 +300,13 @@ func (u *UI) refreshRepoList() {
 	}
 	objects := make([]fyne.CanvasObject, 0, len(u.repoRows)+2)
 	if u.repoFamilyMismatch() {
-		objects = append(objects, u.banner("Há repositórios configurados para outra família de destino. Remova-os ou volte ao alvo correto antes de continuar.", toneError), vSpace(8))
+		objects = append(objects, u.banner(i18n.T("Há repositórios configurados para outra família de destino. Remova-os ou volte ao alvo correto antes de continuar."), toneError), vSpace(8))
 	}
 	if len(u.repoRows) == 0 {
-		objects = append(objects, u.banner("Nenhum repositório adicional. O download usará apenas os repositórios oficiais.", toneInfo))
+		objects = append(objects, u.banner(i18n.T("Nenhum repositório adicional. O download usará apenas os repositórios oficiais."), toneInfo))
 	} else {
 		for i, row := range u.repoRows {
+			row.refreshKeySourceOptions()
 			if i > 0 {
 				objects = append(objects, vSpace(10))
 			}
@@ -269,37 +318,37 @@ func (u *UI) refreshRepoList() {
 }
 
 func (u *UI) repoRowCard(row *repoRow, index int) fyne.CanvasObject {
-	remove := u.ghostButton("Remover", theme.DeleteIcon(), func() { u.removeRepoRow(index) })
+	remove := u.ghostButton(i18n.T("Remover"), theme.DeleteIcon(), func() { u.removeRepoRow(index) })
 	header := container.NewHBox(
-		textLine(fmt.Sprintf("Repositório %d", index+1), 13, true, theme.Color(theme.ColorNameForeground)),
+		textLine(i18n.T("Repositório %d", index+1), 13, true, theme.Color(theme.ColorNameForeground)),
 		layout.NewSpacer(),
 		remove,
 	)
-	keyBrowse := u.ghostButton("Procurar", theme.FolderOpenIcon(), func() {
-		row.keySource.SetSelected(repoKeySources[0])
+	keyBrowse := u.ghostButton(i18n.T("Procurar"), theme.FolderOpenIcon(), func() {
+		row.keySource.SetSelected(repoKeySourceLabel(0))
 		u.pickRepositoryFile(row.keyValue)
 	})
 	keyRow := container.NewBorder(nil, nil, nil, keyBrowse, row.keyValue)
-	caBrowse := u.ghostButton("Procurar", theme.FolderOpenIcon(), func() { u.pickRepositoryFile(row.caFile) })
+	caBrowse := u.ghostButton(i18n.T("Procurar"), theme.FolderOpenIcon(), func() { u.pickRepositoryFile(row.caFile) })
 	caRow := container.NewBorder(nil, nil, nil, caBrowse, row.caFile)
 	items := []*widget.FormItem{
-		widget.NewFormItem("Nome", row.name),
-		widget.NewFormItem("URL", row.url),
-		widget.NewFormItem("Chave", row.keySource),
-		widget.NewFormItem("Chave (arquivo/URL)", keyRow),
-		widget.NewFormItem("CA customizada", caRow),
-		widget.NewFormItem("TLS", row.insecureTLS),
+		widget.NewFormItem(i18n.T("Nome"), row.name),
+		widget.NewFormItem(i18n.T("URL"), row.url),
+		widget.NewFormItem(i18n.T("Chave"), row.keySource),
+		widget.NewFormItem(i18n.T("Chave (arquivo/URL)"), keyRow),
+		widget.NewFormItem(i18n.T("CA customizada"), caRow),
+		widget.NewFormItem(i18n.T("TLS"), row.insecureTLS),
 	}
 	if row.family == core.RepositoryFamilyAPT {
 		items = append(items,
-			widget.NewFormItem("Suite APT", row.aptSuite),
-			widget.NewFormItem("Components APT", row.aptComponents),
+			widget.NewFormItem(i18n.T("Suite APT"), row.aptSuite),
+			widget.NewFormItem(i18n.T("Components APT"), row.aptComponents),
 			widget.NewFormItem("", row.aptFlat),
 		)
 	}
-	note := u.muted("Repositório usado somente no ambiente de download; a lista é aditiva e não substitui os repositórios oficiais.", theme.SizeNameCaptionText)
+	note := u.muted(i18n.T("Repositório usado somente no ambiente de download; a lista é aditiva e não substitui os repositórios oficiais."), theme.SizeNameCaptionText)
 	if row.family == core.RepositoryFamilyAPK {
-		note = u.muted("APK aceita CA customizada, mas não insecure TLS. Sem chave, use o opt-in inseguro de GPG.", theme.SizeNameCaptionText)
+		note = u.muted(i18n.T("APK aceita CA customizada, mas não insecure TLS. Sem chave, use o opt-in inseguro de GPG."), theme.SizeNameCaptionText)
 	}
 	return u.cardShell(theme.Color(colorCardBackground), theme.Color(colorBorder), 1, container.NewVBox(
 		header,

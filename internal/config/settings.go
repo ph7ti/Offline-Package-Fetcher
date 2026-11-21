@@ -18,19 +18,23 @@ type Settings struct {
 	StageTimeoutSecs int    `json:"stage_timeout_seconds,omitempty"`
 	DockerImage      string `json:"docker_image,omitempty"`
 	WSLDistro        string `json:"wsl_distro,omitempty"`
-	IncludeOptional  bool   `json:"include_optional"`
-	ForceReinstall   bool   `json:"force_reinstall"`
-	SyslogEnabled    bool   `json:"syslog_enabled"`
-	SyslogHost       string `json:"syslog_host,omitempty"`
-	SyslogPort       int    `json:"syslog_port,omitempty"`
-	SyslogProto      string `json:"syslog_proto,omitempty"`
-	SyslogTag        string `json:"syslog_tag,omitempty"`
+	// Language is the interface language: "auto" follows the operating system,
+	// otherwise "en", "pt-BR" or "es".
+	Language        string `json:"language,omitempty"`
+	IncludeOptional bool   `json:"include_optional"`
+	ForceReinstall  bool   `json:"force_reinstall"`
+	SyslogEnabled   bool   `json:"syslog_enabled"`
+	SyslogHost      string `json:"syslog_host,omitempty"`
+	SyslogPort      int    `json:"syslog_port,omitempty"`
+	SyslogProto     string `json:"syslog_proto,omitempty"`
+	SyslogTag       string `json:"syslog_tag,omitempty"`
 }
 
 func Default() Settings {
 	return Settings{
 		FetchMethod:      "docker",
 		StageTimeoutSecs: int((10 * time.Minute) / time.Second),
+		Language:         "auto",
 		SyslogProto:      "udp",
 		SyslogTag:        "opf",
 	}
@@ -137,6 +141,11 @@ func (s Settings) Validate() error {
 	case "", "udp", "tcp":
 	default:
 		return fmt.Errorf("protocolo syslog inválido: %q", s.SyslogProto)
+	}
+	switch s.Language {
+	case "", "auto", "en", "pt-BR", "es":
+	default:
+		return fmt.Errorf("idioma inválido: %q (use auto, en, pt-BR ou es)", s.Language)
 	}
 	return nil
 }

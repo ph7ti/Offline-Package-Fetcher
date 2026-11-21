@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"opf/internal/core"
+	"opf/internal/i18n"
 )
 
 var (
@@ -23,24 +24,24 @@ func (m *Model) View() string {
 	case screenWelcome:
 		body = m.viewWelcome()
 	case screenConfig:
-		body = m.viewForm("Configuração da Sessão", "Presets validados: ubuntu 22.04/24.04, debian 12, centos 7 (imagem preparada) e alpine 3.20. O método auto usa WSL compatível no Windows e Docker nos demais casos.")
+		body = m.viewForm(i18n.T("Configuração da Sessão"), i18n.T("Presets validados: ubuntu 22.04/24.04, debian 12, centos 7 (imagem preparada) e alpine 3.20. O método auto usa WSL compatível no Windows e Docker nos demais casos."))
 	case screenRepos:
 		body = m.viewRepos()
 	case screenRepoEdit:
-		body = m.viewForm("Repositório adicional", "Usado somente no ambiente isolado de download; a lista é aditiva e não substitui os repositórios oficiais. APK aceita CA customizada, mas não insecure TLS.")
+		body = m.viewForm(i18n.T("Repositório adicional"), i18n.T("Usado somente no ambiente isolado de download; a lista é aditiva e não substitui os repositórios oficiais. APK aceita CA customizada, mas não insecure TLS."))
 	case screenSSH:
-		body = m.viewForm("Conexão SSH e Jump Hosts", "Conecte primeiro; Enter/ctrl+d detecta /etc/os-release e uname. Host key é estrita por padrão; o toggle “Ignorar” equivale a StrictHostKeyChecking=no e é inseguro.")
+		body = m.viewForm(i18n.T("Conexão SSH e Jump Hosts"), i18n.T("Conecte primeiro; Enter/ctrl+d detecta /etc/os-release e uname. Host key é estrita por padrão; o toggle “Ignorar” equivale a StrictHostKeyChecking=no e é inseguro."))
 		if m.detectedText != "" && m.detectedMatchesSSH() {
-			body += "\nDestino detectado: " + m.detectedText + "\n"
+			body += "\n" + i18n.T("Destino detectado: %s", m.detectedText) + "\n"
 		} else if m.sshEnabled && !m.manualTarget {
-			body += "\nDestino ainda não detectado ou configuração alterada: Enter/ctrl+d executa a detecção.\n"
+			body += "\n" + i18n.T("Destino ainda não detectado ou configuração alterada: Enter/ctrl+d executa a detecção.") + "\n"
 		}
 	case screenJumps:
 		body = m.viewJumps()
 	case screenJumpEdit:
-		body = m.viewForm("Ponte SSH", "Cada ponte usa credenciais próprias; senhas ficam apenas em memória e nunca são persistidas. Vazio em known_hosts herda o valor do destino.")
+		body = m.viewForm(i18n.T("Ponte SSH"), i18n.T("Cada ponte usa credenciais próprias; senhas ficam apenas em memória e nunca são persistidas. Vazio em known_hosts herda o valor do destino."))
 	case screenPackages:
-		body = m.viewForm("Pacotes e Pré-check", "Pré-check remoto automático; use Forçar reinstalação para ignorar pacotes presentes. A instalação nunca é retomada automaticamente.")
+		body = m.viewForm(i18n.T("Pacotes e Pré-check"), i18n.T("Pré-check remoto automático; use Forçar reinstalação para ignorar pacotes presentes. A instalação nunca é retomada automaticamente."))
 	case screenProgress:
 		body = m.viewProgress()
 	case screenResult:
@@ -52,13 +53,19 @@ func (m *Model) View() string {
 	case screenSettings:
 		body = m.viewSettings()
 	}
-	header := titleStyle.Render("OPF TUI 1.1") + "  " + helpStyle.Render("terminal • CGO_ENABLED=0")
+	header := titleStyle.Render("OPF TUI 2.0") + "  " + helpStyle.Render("terminal • CGO_ENABLED=0")
 	help := helpStyle.Render(m.helpText())
 	return header + "\n" + strings.Repeat("─", 72) + "\n\n" + body + "\n\n" + help
 }
 
 func (m *Model) viewWelcome() string {
-	options := []string{"Nova sessão", "Continuar sessão", "Histórico", "Configurações globais", "Sair"}
+	options := []string{
+		i18n.T("Nova sessão"),
+		i18n.T("Continuar sessão"),
+		i18n.T("Histórico"),
+		i18n.T("Configurações globais"),
+		i18n.T("Sair"),
+	}
 	var b strings.Builder
 	b.WriteString("Offline Package Fetcher\n\n")
 	for i, option := range options {
@@ -71,11 +78,11 @@ func (m *Model) viewWelcome() string {
 	}
 	b.WriteString("\n")
 	if m.store == nil {
-		b.WriteString("SQLite indisponível\n")
+		b.WriteString(i18n.T("SQLite indisponível") + "\n")
 	} else {
-		b.WriteString("SQLite: OK\n")
+		b.WriteString(i18n.T("SQLite: OK") + "\n")
 	}
-	b.WriteString("Sem NOPASSWD • host key obrigatória • segredos nunca são logados\n")
+	b.WriteString(i18n.T("Sem NOPASSWD • host key obrigatória • segredos nunca são logados") + "\n")
 	if m.errorMsg != "" {
 		b.WriteString("\n" + errorStyle.Render(m.errorMsg) + "\n")
 	}
@@ -106,7 +113,7 @@ func (m *Model) viewForm(title, description string) string {
 			if item.choiceDisplay != nil {
 				value = item.choiceDisplay(value)
 			}
-			fmt.Fprintf(&b, "%s%-28s [%s] (espaço alterna)\n", prefix, item.label, value)
+			fmt.Fprintf(&b, "%s%-28s [%s] (%s)\n", prefix, item.label, value, i18n.T("espaço alterna"))
 			continue
 		}
 		if item.input != nil {
@@ -114,28 +121,28 @@ func (m *Model) viewForm(title, description string) string {
 		}
 	}
 	if m.screen == screenConfig {
-		fmt.Fprintf(&b, "\nRepositórios adicionais: %d\n", len(m.repoDrafts))
+		fmt.Fprintf(&b, "\n%s\n", i18n.T("Repositórios adicionais: %d", len(m.repoDrafts)))
 		for i, draft := range m.repoDrafts {
 			fmt.Fprintf(&b, "  %d. %s\n", i+1, draft.summary())
 		}
 		if m.repoFamilyMismatch() {
-			b.WriteString("  " + errorStyle.Render("há repositórios de outra família de destino") + "\n")
+			b.WriteString("  " + errorStyle.Render(i18n.T("há repositórios de outra família de destino")) + "\n")
 		}
-		b.WriteString("  ctrl+r gerenciar repositórios\n")
+		b.WriteString("  " + i18n.T("ctrl+r gerenciar repositórios") + "\n")
 	}
 	if m.screen == screenSSH {
-		fmt.Fprintf(&b, "\nPontes SSH: %d\n", len(m.jumpDrafts))
+		fmt.Fprintf(&b, "\n%s\n", i18n.T("Pontes SSH: %d", len(m.jumpDrafts)))
 		if len(m.jumpDrafts) == 0 {
-			b.WriteString("  nenhuma — conexão direta ao destino\n")
+			b.WriteString("  " + i18n.T("nenhuma — conexão direta ao destino") + "\n")
 		} else {
 			for i, draft := range m.jumpDrafts {
 				fmt.Fprintf(&b, "  %d. %s\n", i+1, draft.summary())
 			}
 		}
-		b.WriteString("  ctrl+j gerenciar pontes\n")
+		b.WriteString("  " + i18n.T("ctrl+j gerenciar pontes") + "\n")
 	}
 	if m.screen == screenPackages && !m.sshEnabled {
-		b.WriteString("\nModo apenas baixar: instalação e SSH estão desativados.\n")
+		b.WriteString("\n" + i18n.T("Modo apenas baixar: instalação e SSH estão desativados.") + "\n")
 	}
 	if m.errorMsg != "" {
 		b.WriteString("\n" + errorStyle.Render(m.errorMsg) + "\n")
@@ -145,7 +152,7 @@ func (m *Model) viewForm(title, description string) string {
 
 func (m *Model) viewProgress() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Executando pipeline") + "\n\n")
+	b.WriteString(titleStyle.Render(i18n.T("Executando pipeline")) + "\n\n")
 	if m.progressText != "" {
 		b.WriteString(m.progressText + "\n")
 	}
@@ -161,7 +168,7 @@ func (m *Model) viewProgress() string {
 	for i := 0; i < core.TotalEtapas; i++ {
 		fmt.Fprintf(&b, "%s %02d. %s\n", m.steps[i], i+1, m.stepName[i])
 	}
-	b.WriteString("\nLog (últimas linhas):\n")
+	b.WriteString("\n" + i18n.T("Log (últimas linhas):") + "\n")
 	start := 0
 	if len(m.logs) > 25 {
 		start = len(m.logs) - 25
@@ -170,7 +177,7 @@ func (m *Model) viewProgress() string {
 		b.WriteString("  " + line + "\n")
 	}
 	if m.confirm != nil {
-		b.WriteString("\n" + selectedStyle.Render(fmt.Sprintf("Instalar %d artefatos? [y/n]", m.confirm.count)) + "\n")
+		b.WriteString("\n" + selectedStyle.Render(i18n.T("Instalar %d artefatos? [y/n]", m.confirm.count)) + "\n")
 	}
 	return b.String()
 }
@@ -178,32 +185,37 @@ func (m *Model) viewProgress() string {
 func (m *Model) viewResult() string {
 	var b strings.Builder
 	if m.runErr != nil {
-		b.WriteString(errorStyle.Render("Sessão encerrada com erro") + "\n\n")
+		b.WriteString(errorStyle.Render(i18n.T("Sessão encerrada com erro")) + "\n\n")
 		b.WriteString(m.runErr.Error() + "\n")
 	} else if m.result != nil {
-		title := "Sessão concluída"
+		title := i18n.T("Sessão concluída")
 		if m.result.InstallDeclined {
-			title = "Transferência concluída — instalação recusada"
+			title = i18n.T("Transferência concluída — instalação recusada")
 		}
 		if m.result.AllAlreadyInstalled {
-			title = "Todos os pacotes já estavam instalados"
+			title = i18n.T("Todos os pacotes já estavam instalados")
 		}
 		if m.result.Installed {
-			title = "Instalação concluída"
+			title = i18n.T("Instalação concluída")
 		}
 		b.WriteString(titleStyle.Render(title) + "\n\n")
-		fmt.Fprintf(&b, "Sessão: #%d\nArtefatos: %d\nSaída: %s\nManifesto: %s\nDestino remoto: %s\n", m.result.SessaoID, len(m.result.Artifacts), m.result.OutputDir, m.result.CaminhoManifesto, m.result.RemoteDir)
+		fmt.Fprintf(&b, "%s #%d\n%s %d\n%s %s\n%s %s\n%s %s\n",
+			i18n.T("Sessão:"), m.result.SessaoID,
+			i18n.T("Artefatos:"), len(m.result.Artifacts),
+			i18n.T("Saída:"), m.result.OutputDir,
+			i18n.T("Manifesto:"), m.result.CaminhoManifesto,
+			i18n.T("Destino remoto:"), m.result.RemoteDir)
 		if len(m.result.AlreadyInstalled) > 0 {
 			var names []string
 			for _, p := range m.result.AlreadyInstalled {
 				names = append(names, p.Name)
 			}
-			b.WriteString("Já instalados: " + strings.Join(names, ", ") + "\n")
+			b.WriteString(i18n.T("Já instalados: %s", strings.Join(names, ", ")) + "\n")
 		}
 	} else {
-		b.WriteString("Sem resultado.\n")
+		b.WriteString(i18n.T("Sem resultado.") + "\n")
 	}
-	b.WriteString("\n[r] relatório  [h] histórico  [n] nova sessão  [esc] início\n")
+	b.WriteString("\n" + i18n.T("[r] relatório  [h] histórico  [n] nova sessão  [esc] início") + "\n")
 	return b.String()
 }
 
@@ -225,21 +237,21 @@ func (m *Model) viewReport() string {
 		end = len(lines)
 	}
 	visible := strings.Join(lines[m.reportOffset:end], "\n")
-	return titleStyle.Render("Relatório da sessão") + fmt.Sprintf(" (linhas %d-%d/%d)", m.reportOffset+1, end, len(lines)) + "\n\n" + visible
+	return titleStyle.Render(i18n.T("Relatório da sessão")) + " " + i18n.T("(linhas %d-%d/%d)", m.reportOffset+1, end, len(lines)) + "\n\n" + visible
 }
 
 func (m *Model) viewHistory() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Histórico") + "\n\n")
+	b.WriteString(titleStyle.Render(i18n.T("Histórico")) + "\n\n")
 	if len(m.sessions) == 0 {
-		b.WriteString("Nenhuma sessão.\n")
+		b.WriteString(i18n.T("Nenhuma sessão.") + "\n")
 		return b.String()
 	}
 	for i, sessao := range m.sessions {
 		prefix := "  "
 		line := fmt.Sprintf("#%d  %s %s  %s  %s", sessao.ID, sessao.TargetOS, sessao.TargetVersion, sessao.Status, sessao.HostDestino)
 		if sessao.Arquivada {
-			line += " (arquivada)"
+			line += " " + i18n.T("(arquivada)")
 		}
 		if i == m.sessionIdx {
 			prefix = "> "
@@ -247,16 +259,16 @@ func (m *Model) viewHistory() string {
 		}
 		b.WriteString(prefix + line + "\n")
 	}
-	b.WriteString("\n[enter] abrir  [r] retomar  [a] arquivar  [esc] voltar\n")
+	b.WriteString("\n" + i18n.T("[enter] abrir  [r] retomar  [a] arquivar  [esc] voltar") + "\n")
 	return b.String()
 }
 
 func (m *Model) viewRepos() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Repositórios adicionais") + "\n\n")
-	b.WriteString("Usados somente no ambiente isolado de download; a lista é aditiva.\n\n")
+	b.WriteString(titleStyle.Render(i18n.T("Repositórios adicionais")) + "\n\n")
+	b.WriteString(i18n.T("Usados somente no ambiente isolado de download; a lista é aditiva.") + "\n\n")
 	if len(m.repoDrafts) == 0 {
-		b.WriteString("Nenhum repositório adicional; o download usará apenas os oficiais.\n")
+		b.WriteString(i18n.T("Nenhum repositório adicional; o download usará apenas os oficiais.") + "\n")
 	} else {
 		for i, draft := range m.repoDrafts {
 			prefix := "  "
@@ -269,9 +281,9 @@ func (m *Model) viewRepos() string {
 		}
 	}
 	if m.repoFamilyMismatch() {
-		b.WriteString("\n" + errorStyle.Render("Há repositórios de outra família de destino; remova-os ou ajuste o alvo.") + "\n")
+		b.WriteString("\n" + errorStyle.Render(i18n.T("Há repositórios de outra família de destino; remova-os ou ajuste o alvo.")) + "\n")
 	}
-	b.WriteString("\n[a] adicionar  [e/enter] editar  [d] remover  [esc] voltar\n")
+	b.WriteString("\n" + i18n.T("[a] adicionar  [e/enter] editar  [d] remover  [esc] voltar") + "\n")
 	if m.errorMsg != "" {
 		b.WriteString("\n" + errorStyle.Render(m.errorMsg) + "\n")
 	}
@@ -280,9 +292,9 @@ func (m *Model) viewRepos() string {
 
 func (m *Model) viewJumps() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Pontes SSH") + "\n\n")
+	b.WriteString(titleStyle.Render(i18n.T("Pontes SSH")) + "\n\n")
 	if len(m.jumpDrafts) == 0 {
-		b.WriteString("Nenhuma ponte configurada; a conexão vai direto ao destino.\n")
+		b.WriteString(i18n.T("Nenhuma ponte configurada; a conexão vai direto ao destino.") + "\n")
 	} else {
 		for i, draft := range m.jumpDrafts {
 			prefix := "  "
@@ -294,7 +306,7 @@ func (m *Model) viewJumps() string {
 			b.WriteString(prefix + line + "\n")
 		}
 	}
-	b.WriteString("\n[a] adicionar  [e/enter] editar  [d] remover  [K]/[J] mover  [esc] voltar\n")
+	b.WriteString("\n" + i18n.T("[a] adicionar  [e/enter] editar  [d] remover  [K]/[J] mover  [esc] voltar") + "\n")
 	if m.errorMsg != "" {
 		b.WriteString("\n" + errorStyle.Render(m.errorMsg) + "\n")
 	}
@@ -303,41 +315,43 @@ func (m *Model) viewJumps() string {
 
 func (m *Model) viewSettings() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Configurações Globais") + "\n\n")
-	b.WriteString("Arquivo: " + m.settingsPath + "\n\n")
-	b.WriteString(m.viewForm("", "Configurações não sensíveis; senhas nunca são gravadas."))
-	b.WriteString("\nSyslog: RFC 5424 assíncrono (UDP/TCP); falhas não interrompem o pipeline.\n")
+	b.WriteString(titleStyle.Render(i18n.T("Configurações Globais")) + "\n\n")
+	b.WriteString(i18n.T("Arquivo: %s", m.settingsPath) + "\n")
+	b.WriteString(i18n.T("Idioma atual: %s (%s)", languageSettingValue(m.settings.Language), i18n.NativeName(i18n.Current())) + "\n\n")
+	b.WriteString(m.viewForm("", i18n.T("Configurações não sensíveis; senhas nunca são gravadas.")))
+	b.WriteString(i18n.T("Valores aceitos: auto, en, pt-BR, es") + "\n")
+	b.WriteString("\n" + i18n.T("Syslog: RFC 5424 assíncrono (UDP/TCP); falhas não interrompem o pipeline.") + "\n")
 	return b.String()
 }
 
 func (m *Model) helpText() string {
 	switch m.screen {
 	case screenWelcome:
-		return "↑/↓ navegar • enter selecionar • q sair"
+		return i18n.T("↑/↓ navegar • enter selecionar • q sair")
 	case screenConfig:
-		return "tab/↑↓ campos • ctrl+r repositórios • enter próximo • esc voltar • ctrl+c sair"
+		return i18n.T("tab/↑↓ campos • ctrl+r repositórios • enter próximo • esc voltar • ctrl+c sair")
 	case screenRepos:
-		return "↑/↓ navegar • a adicionar • e/enter editar • d remover • esc voltar"
+		return i18n.T("↑/↓ navegar • a adicionar • e/enter editar • d remover • esc voltar")
 	case screenRepoEdit:
-		return "tab/↑↓ campos • espaço alternar • enter salvar • esc descartar"
+		return i18n.T("tab/↑↓ campos • espaço alternar • enter salvar • esc descartar")
 	case screenSSH:
-		return "tab/↑↓ campos • ctrl+j pontes • ctrl+d detectar • ctrl+t testar • ctrl+a avançado • enter detectar/continuar • esc voltar"
+		return i18n.T("tab/↑↓ campos • ctrl+j pontes • ctrl+d detectar • ctrl+t testar • ctrl+a avançado • enter detectar/continuar • esc voltar")
 	case screenJumps:
-		return "↑/↓ navegar • a adicionar • e/enter editar • d remover • K/J mover • esc voltar"
+		return i18n.T("↑/↓ navegar • a adicionar • e/enter editar • d remover • K/J mover • esc voltar")
 	case screenJumpEdit:
-		return "tab/↑↓ campos • espaço alternar autenticação • enter salvar • esc descartar"
+		return i18n.T("tab/↑↓ campos • espaço alternar autenticação • enter salvar • esc descartar")
 	case screenPackages:
-		return "tab/↑↓ campos • espaço alternar • enter iniciar • esc voltar"
+		return i18n.T("tab/↑↓ campos • espaço alternar • enter iniciar • esc voltar")
 	case screenProgress:
-		return "c cancelar • y/n confirmar instalação • ctrl+c sair"
+		return i18n.T("c cancelar • y/n confirmar instalação • ctrl+c sair")
 	case screenResult:
-		return "r relatório • h histórico • n nova • esc início"
+		return i18n.T("r relatório • h histórico • n nova • esc início")
 	case screenReport:
-		return "↑/↓ rolar • pgup/pgdown • J JSON • M Markdown • S Syslog • esc voltar"
+		return i18n.T("↑/↓ rolar • pgup/pgdown • J JSON • M Markdown • S Syslog • esc voltar")
 	case screenHistory:
-		return "↑↓ navegar • enter abrir • r retomar • a arquivar • esc voltar"
+		return i18n.T("↑↓ navegar • enter abrir • r retomar • a arquivar • esc voltar")
 	case screenSettings:
-		return "tab/↑↓ campos • ctrl+s salvar • esc voltar"
+		return i18n.T("tab/↑↓ campos • ctrl+s salvar • esc voltar")
 	default:
 		return ""
 	}

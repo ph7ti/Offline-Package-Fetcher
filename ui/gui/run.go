@@ -12,16 +12,26 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/lang"
 
 	"opf/internal/app"
 	"opf/internal/core"
+	"opf/internal/i18n"
 	"opf/internal/transfer"
 )
+
+// initFyneTranslations fills the Fyne built-in strings that are missing from
+// the bundled pt-BR and es translations, so Fyne never logs a translation
+// failure when a select widget is rendered without a value.
+func initFyneTranslations() {
+	_ = lang.AddTranslationsForLocale([]byte(`{"(Select one)":"(Selecione um)"}`), fyne.Locale("pt-BR"))
+	_ = lang.AddTranslationsForLocale([]byte(`{"(Select one)":"(Seleccione uno)"}`), fyne.Locale("es"))
+}
 
 func (u *UI) startRun() {
 	packages := u.packages()
 	if len(packages) == 0 {
-		u.showError(errors.New("informe ao menos um pacote"))
+		u.showError(fmt.Errorf("%s", i18n.T("informe ao menos um pacote")))
 		return
 	}
 	cfg, err := u.buildConfig(packages)
@@ -42,7 +52,7 @@ func (u *UI) startRun() {
 		if cfg.Install && cfg.SSH.Host != "" {
 			isRoot, probeErr := app.DetectRoot(ctx, cfg.SSH)
 			if probeErr != nil {
-				fyne.Do(func() { u.finishRun(nil, fmt.Errorf("detectar privilégios remotos: %w", probeErr)) })
+				fyne.Do(func() { u.finishRun(nil, fmt.Errorf("%s: %w", i18n.T("detectar privilégios remotos"), probeErr)) })
 				return
 			}
 			if isRoot {
@@ -50,7 +60,7 @@ func (u *UI) startRun() {
 				cfg.SudoPassword = ""
 			} else if !cfg.UseSudo {
 				fyne.Do(func() {
-					u.finishRun(nil, errors.New("usuário remoto não é root; habilite “Usar sudo” e informe a senha da conta"))
+					u.finishRun(nil, errors.New(i18n.T("usuário remoto não é root; habilite “Usar sudo” e informe a senha da conta")))
 				})
 				return
 			}
@@ -74,7 +84,7 @@ func (u *UI) startRun() {
 
 func (u *UI) buildConfig(packages []string) (app.Config, error) {
 	if strings.TrimSpace(u.outEntry.Text) == "" || strings.TrimSpace(u.dbEntry.Text) == "" {
-		return app.Config{}, errors.New("diretórios de saída e banco são obrigatórios")
+		return app.Config{}, errors.New(i18n.T("diretórios de saída e banco são obrigatórios"))
 	}
 	var sshCfg core.SSHConfig
 	if u.sshEnabled.Checked {
@@ -93,7 +103,7 @@ func (u *UI) buildConfig(packages []string) (app.Config, error) {
 	install := u.sshEnabled.Checked && u.installCheck.Checked
 	sudoPassword := u.currentSudoPassword()
 	if install && u.sudoCheck.Checked && sudoPassword == "" {
-		return app.Config{}, errors.New("sudo exige a senha da conta")
+		return app.Config{}, errors.New(i18n.T("sudo exige a senha da conta"))
 	}
 
 	cfg := app.Config{
@@ -137,7 +147,7 @@ func (u *UI) buildSSHConfig() (core.SSHConfig, error) {
 	if strings.TrimSpace(u.sshPort.Text) != "" {
 		parsed, err := strconv.Atoi(strings.TrimSpace(u.sshPort.Text))
 		if err != nil || parsed <= 0 || parsed > 65535 {
-			return core.SSHConfig{}, errors.New("porta SSH inválida")
+			return core.SSHConfig{}, errors.New(i18n.T("porta SSH inválida"))
 		}
 		port = parsed
 	}
@@ -151,10 +161,10 @@ func (u *UI) buildSSHConfig() (core.SSHConfig, error) {
 		InsecureSkipHostKey: u.skipHostKey.Checked,
 	}
 	if cfg.Host == "" || cfg.User == "" {
-		return cfg, errors.New("host e usuário SSH são obrigatórios")
+		return cfg, errors.New(i18n.T("host e usuário SSH são obrigatórios"))
 	}
 	if cfg.KeyPath == "" && cfg.Password == "" {
-		return cfg, errors.New("informe chave SSH ou senha da conta")
+		return cfg, errors.New(i18n.T("informe chave SSH ou senha da conta"))
 	}
 	jumps, err := u.buildJumpConfigs(cfg)
 	if err != nil {
@@ -190,7 +200,7 @@ func (u *UI) detectTarget() {
 		u.showError(err)
 		return
 	}
-	u.detectStatus.SetText("Detectando...")
+	u.detectStatus.SetText(i18n.T("Detectando..."))
 	detectedHost := u.sshHost.Text
 	detectedUser := u.sshUser.Text
 	detectedPort := u.sshPort.Text
@@ -199,7 +209,7 @@ func (u *UI) detectTarget() {
 		info, detectErr := app.DetectRemoteTarget(context.Background(), cfg)
 		fyne.Do(func() {
 			if detectErr != nil {
-				u.detectStatus.SetText("[✘] Detecção falhou")
+				u.detectStatus.SetText(i18n.T("[✘] Detecção falhou"))
 				u.showError(detectErr)
 				return
 			}
@@ -230,9 +240,9 @@ func (u *UI) detectTarget() {
 			u.versionEntry.SetText(info.Version)
 			u.archEntry.SetText(info.Arch)
 			u.imageEntry.SetText(info.Image)
-			status := fmt.Sprintf("[✔] %s %s (%s) • família %s", info.OS, info.Version, info.Arch, info.Family)
+			status := i18n.T("[✔] %s %s (%s) • família %s", info.OS, info.Version, info.Arch, info.Family)
 			if !info.Tested {
-				status += " • preset não validado; revise a configuração avançada"
+				status += i18n.T(" • preset não validado; revise a configuração avançada")
 			}
 			u.detectStatus.SetText(status)
 		})
@@ -256,7 +266,7 @@ func (u *UI) cancelRun() {
 	if u.cancel == nil {
 		return
 	}
-	u.reporter.Log("warn", "cancelamento solicitado")
+	u.reporter.Log("warn", i18n.T("cancelamento solicitado"))
 	u.cancel()
 }
 
@@ -264,8 +274,8 @@ func (u *UI) confirmInstall(ctx context.Context, artifacts []core.PackageArtifac
 	result := make(chan bool, 1)
 	fyne.Do(func() {
 		d := dialog.NewConfirm(
-			"Confirmar instalação",
-			fmt.Sprintf("Instalar %d artefatos no destino?\nA operação usa sudo quando necessário e pode ser interrompida de forma best-effort.", len(artifacts)),
+			i18n.T("Confirmar instalação"),
+			i18n.T("Instalar %d artefatos no destino?\nA operação usa sudo quando necessário e pode ser interrompida de forma best-effort.", len(artifacts)),
 			func(ok bool) {
 				select {
 				case result <- ok:
@@ -274,8 +284,8 @@ func (u *UI) confirmInstall(ctx context.Context, artifacts []core.PackageArtifac
 			},
 			u.window,
 		)
-		d.SetConfirmText("Instalar")
-		d.SetDismissText("Recusar")
+		d.SetConfirmText(i18n.T("Instalar"))
+		d.SetDismissText(i18n.T("Recusar"))
 		d.Show()
 	})
 	select {
@@ -288,7 +298,7 @@ func (u *UI) confirmInstall(ctx context.Context, artifacts []core.PackageArtifac
 
 func (u *UI) testSSH() {
 	if !u.sshEnabled.Checked {
-		dialog.ShowInformation("SSH", "A transferência SSH está desativada.", u.window)
+		dialog.ShowInformation("SSH", i18n.T("A transferência SSH está desativada."), u.window)
 		return
 	}
 	cfg, err := u.buildSSHConfig()
@@ -297,7 +307,7 @@ func (u *UI) testSSH() {
 		return
 	}
 
-	u.testStatus.SetText("Teste de conexão: testando...")
+	u.testStatus.SetText(i18n.T("Teste de conexão: testando..."))
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -308,11 +318,11 @@ func (u *UI) testSSH() {
 		}
 		fyne.Do(func() {
 			if err != nil {
-				u.testStatus.SetText("Teste de conexão: falhou")
+				u.testStatus.SetText(i18n.T("Teste de conexão: falhou"))
 				u.showError(err)
 				return
 			}
-			u.testStatus.SetText("Teste de conexão: conectado")
+			u.testStatus.SetText(i18n.T("Teste de conexão: conectado"))
 		})
 	}()
 }

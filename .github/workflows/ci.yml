@@ -5,9 +5,28 @@
 #   1. test      — go vet + gofmt + go test on Linux and Windows
 #   2. build     — CGO-free cross-compilation of opf-cli and opf-tui
 #                  (linux/amd64, linux/arm64, windows/amd64, darwin/amd64,
-#                   darwin/arm64)
-#   3. build-gui — Fyne v2.8 desktop GUI for linux/amd64 (requires CGO)
+#                   darwin/arm64), plus UPX compression of the Linux binaries
+#   3. build-gui — Fyne v2.8 desktop GUI for linux/amd64 (requires CGO),
+#                  compressed with UPX
 #   4. security  — gitleaks, gosec, govulncheck and the Go security test suite
+#
+# Binary-size pipeline: every production build uses `-trimpath -ldflags
+# "-s -w -buildid="` (paths, symbol table, DWARF and the Go build ID are
+# stripped). The Linux CLI/TUI artifacts and the Linux GUI are then packed with
+# `upx --best --lzma` and verified with `upx -t` *before* they are uploaded, so
+# a broken or rejected pack can never reach an artifact or a release.
+#
+# Windows exception: UPX-packed Windows PE files are unusable on hosts running
+# Cortex XDR and comparable EDR products — the endpoint agent silently blocks
+# every packed .exe (even a minimal hello-world) with exit code -1, while
+# `upx -t` still passes. The windows/amd64 binaries are therefore uploaded
+# uncompressed on purpose; only metadata stripping is applied.
+#
+# Darwin exception: UPX 4.2.2 (the version in Ubuntu's `upx-ucl` package) and
+# UPX 5.3 both refuse Mach-O binaries with "CantPackException: macOS is
+# currently not supported (try --force-macos)". The darwin/amd64 and
+# darwin/arm64 binaries are therefore uploaded uncompressed on purpose; the
+# compression steps are simply skipped for windows/darwin entries.
 #
 # Third-party actions are pinned to the current stable major versions, checked
 # against the GitHub REST API on 2026-11-21:
@@ -50,6 +69,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+    env:
+      # Pin the interface language: i18n follows the OS language by default,
+      # but the assertions use Portuguese source strings. Without this the
+      # suite would depend on the runner's locale.
+      OPF_LANG: "pt-BR"
+      CGO_ENABLED: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -89,6 +114,11 @@ jobs:
   # 2. Release-grade cross-compilation of the CLI and the TUI.
   #    Pure Go (modernc.org/sqlite), so CGO_ENABLED=0 keeps the binaries
   #    statically linked and portable.
+  #
+  #    UPX is applied only to linux/amd64 and linux/arm64 (and the Linux GUI in
+  #    the job below). windows/amd64 stays uncompressed because EDR products
+  #    block packed PE files; darwin stays uncompressed because UPX cannot pack
+  #    Mach-O. Metadata stripping (`-s -w -buildid=`) still applies everywhere.
   # --------------------------------------------------------------------------
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
@@ -122,6 +152,15 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
+      - name: Install UPX
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          # upx-ucl is Ubuntu's packaged UPX. `file` is used by the
+          # post-compression format check. Windows/darwin entries skip this.
+          sudo apt-get install --no-install-recommends -y upx-ucl file
+          upx --version | awk 'NR==1'
+
       - name: Cross-compile opf-cli and opf-tui
         env:
           GOOS: ${{ matrix.goos }}
@@ -137,7 +176,7 @@ jobs:
           for cmd in opf-cli opf-tui; do
             out="dist/${cmd}-${GOOS}-${GOARCH}${ext}"
             echo "==> go build ${out}"
-            go build -trimpath -ldflags "-s -w" -o "${out}" "./cmd/${cmd}"
+            go build -trimpath -ldflags "-s -w -buildid=" -o "${out}" "./cmd/${cmd}"
           done
           ls -l dist
 
@@ -147,9 +186,50 @@ jobs:
           # `awk 'NR==1'` instead of `head -n 1`: head closes the pipe early and
           # the writer dies with SIGPIPE, which `pipefail` would turn into a
           # spurious job failure.
+          # This must run BEFORE UPX: packing hides the Go build info.
           for binary in dist/*; do
             go version -m "${binary}" | awk 'NR==1'
           done
+
+      - name: Compress Linux binaries with UPX
+        if: matrix.goos == 'linux'
+        run: |
+          set -euo pipefail
+          # `--best --lzma` is the strongest UPX mode. `upx -t` verifies each
+          # packed file; either command failing fails this job, so a rejected
+          # or corrupted artifact is never uploaded. Windows/darwin entries
+          # skip this step entirely (see the workflow header).
+          for binary in dist/*; do
+            echo "==> upx --best --lzma ${binary}"
+            upx --best --lzma "${binary}"
+            upx -t "${binary}"
+          done
+          echo "----- compressed artifact formats and sizes -----"
+          file dist/*
+          ls -l dist
+
+      - name: Smoke-test compressed opf-cli (linux/amd64)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          set -euo pipefail
+          # `-h` makes Go's flag package print the usage text and return
+          # flag.ErrHelp, which opf-cli handles by exiting 0. The usage output
+          # is what proves the UPX-packed binary still runs.
+          if output="$(./dist/opf-cli-linux-amd64 -h 2>&1)"; then
+            status=0
+          else
+            status=$?
+          fi
+          printf '%s\n' "${output}"
+          if [ "${status}" -ne 0 ]; then
+            echo "::error title=UPX smoke test::opf-cli -h exited ${status}, expected 0"
+            exit 1
+          fi
+          if ! grep -q -- "-target" <<< "${output}"; then
+            echo "::error title=UPX smoke test::opf-cli -h did not print its usage text"
+            exit 1
+          fi
+          echo "OK: compressed opf-cli prints usage and exits 0 as expected."
 
       - name: Upload ${{ matrix.goos }}/${{ matrix.goarch }} binaries
         uses: actions/upload-artifact@v7
@@ -166,6 +246,8 @@ jobs:
   #    (libgl1-mesa-dev, xorg-dev, libxkbcommon-dev, libwayland-dev) and is
   #    required by go-gl/glfw v3.4. On Windows the GUI already builds with
   #    CGO + MinGW (verified by the Lead).
+  #    `upx-ucl` is installed here as well: the ELF GUI is packed with UPX
+  #    after the build and checked with `upx -t` before upload.
   # --------------------------------------------------------------------------
   build-gui:
     name: Build GUI (linux/amd64)
@@ -191,12 +273,13 @@ jobs:
         run: |
           sudo apt-get update
           # Build dependencies: gcc + pkg-config + OpenGL/X11/XKB/Wayland
-          # development headers (mirrors fyne-io/fyne's Linux CI). `file` is only
-          # used by the verification step below.
+          # development headers (mirrors fyne-io/fyne's Linux CI). `file` and
+          # `upx-ucl` are only used by the compression/verification step below.
           sudo apt-get install --no-install-recommends -y \
             gcc \
             pkg-config \
             file \
+            upx-ucl \
             libgl1-mesa-dev \
             xorg-dev \
             libxkbcommon-dev \
@@ -206,9 +289,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w" -o dist/opf-gui-linux-amd64 ./cmd/opf-gui
+          go build -trimpath -ldflags "-s -w -buildid=" -o dist/opf-gui-linux-amd64 ./cmd/opf-gui
           file dist/opf-gui-linux-amd64
           go version -m dist/opf-gui-linux-amd64 | awk 'NR==1'
+
+      - name: Compress opf-gui with UPX
+        run: |
+          set -euo pipefail
+          upx --best --lzma dist/opf-gui-linux-amd64
+          upx -t dist/opf-gui-linux-amd64
+          # No display is available on the runner, so `upx -t` plus a format
+          # check is the GUI verification (see the workflow header).
+          file dist/opf-gui-linux-amd64
+          ls -l dist/opf-gui-linux-amd64
 
       - name: Upload opf-gui-linux-amd64
         uses: actions/upload-artifact@v7
@@ -238,6 +331,9 @@ jobs:
     timeout-minutes: 25
     env:
       CGO_ENABLED: "0"
+      # The security suite imports the same Portuguese test fixtures as the main
+      # suite; pin the language so the run does not depend on the OS locale.
+      OPF_LANG: "pt-BR"
     steps:
       - name: Checkout (full history for gitleaks)
         uses: actions/checkout@v7

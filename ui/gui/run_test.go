@@ -12,9 +12,16 @@ import (
 
 	opfapp "opf/internal/app"
 	"opf/internal/core"
+	"opf/internal/i18n"
 )
 
 func TestMain(m *testing.M) {
+	// The suite asserts Portuguese source strings; pin the interface language so
+	// the result does not depend on the machine locale.
+	i18n.Set(i18n.PTBR)
+	// Fill Fyne's own missing pt-BR/es strings, as Run does, to avoid noisy
+	// "Translation failure" logs while the widgets render.
+	initFyneTranslations()
 	test.NewApp()
 	os.Exit(m.Run())
 }

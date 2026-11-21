@@ -4,6 +4,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"opf/internal/core"
+	"opf/internal/i18n"
 )
 
 type tuiReporter struct {
@@ -23,7 +24,7 @@ func (r *tuiReporter) StepFinished(step int, name string) {
 func (r *tuiReporter) StepFailed(step int, name string, err error) {
 	r.send(pipelineStepMsg{step: step, status: "[✘]", name: name})
 	if err != nil {
-		r.send(pipelineLogMsg{level: "erro", message: err.Error()})
+		r.send(pipelineLogMsg{level: i18n.T("erro"), message: err.Error()})
 	}
 }
 

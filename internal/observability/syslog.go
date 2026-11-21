@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"opf/internal/core"
+	"opf/internal/i18n"
 )
 
 var tagPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -57,22 +58,22 @@ func NewSyslogSink(cfg SyslogConfig) (*SyslogSink, error) {
 		cfg.Proto = "udp"
 	}
 	if cfg.Proto != "udp" && cfg.Proto != "tcp" {
-		return nil, fmt.Errorf("protocolo syslog inválido: %q", cfg.Proto)
+		return nil, fmt.Errorf(i18n.T("protocolo syslog inválido: %q"), cfg.Proto)
 	}
 	if strings.TrimSpace(cfg.Host) == "" {
-		return nil, errors.New("host syslog não informado")
+		return nil, errors.New(i18n.T("host syslog não informado"))
 	}
 	if cfg.Port == 0 {
 		cfg.Port = 514
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
-		return nil, fmt.Errorf("porta syslog inválida: %d", cfg.Port)
+		return nil, fmt.Errorf(i18n.T("porta syslog inválida: %d"), cfg.Port)
 	}
 	if cfg.Tag == "" {
 		cfg.Tag = "opf"
 	}
 	if !tagPattern.MatchString(cfg.Tag) {
-		return nil, fmt.Errorf("tag syslog inválida: %q", cfg.Tag)
+		return nil, fmt.Errorf(i18n.T("tag syslog inválida: %q"), cfg.Tag)
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 2 * time.Second
@@ -111,13 +112,13 @@ func (s *SyslogSink) Emit(_ context.Context, event core.Evento) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed {
-		return errors.New("syslog sink já fechado")
+		return errors.New(i18n.T("syslog sink já fechado"))
 	}
 	select {
 	case s.events <- event:
 		return nil
 	default:
-		return errors.New("fila do syslog cheia")
+		return errors.New(i18n.T("fila do syslog cheia"))
 	}
 }
 

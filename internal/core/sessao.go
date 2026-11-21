@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"opf/internal/i18n"
 )
 
 type SessaoStatus string
@@ -82,21 +84,21 @@ type Sessao struct {
 
 func (s *Sessao) Validate() error {
 	if s == nil {
-		return errors.New("sessao nula")
+		return errors.New(i18n.T("sessao nula"))
 	}
 	if s.TargetOS == "" {
-		return errors.New("SO de destino não informado")
+		return errors.New(i18n.T("SO de destino não informado"))
 	}
 	if s.TargetVersion == "" {
-		return errors.New("versão de destino não informada")
+		return errors.New(i18n.T("versão de destino não informada"))
 	}
 	if s.TargetArch == "" {
-		return errors.New("arquitetura de destino não informada")
+		return errors.New(i18n.T("arquitetura de destino não informada"))
 	}
 	switch s.FetchMethod {
 	case "docker", "wsl":
 	default:
-		return fmt.Errorf("método de fetch inválido: %q", s.FetchMethod)
+		return fmt.Errorf(i18n.T("método de fetch inválido: %q"), s.FetchMethod)
 	}
 	if s.Status == "" {
 		s.Status = SessaoEmAndamento
@@ -207,9 +209,12 @@ var nomesEtapas = map[int]string{
 
 const TotalEtapas = 13
 
+// NomeEtapa returns the human-readable name of a pipeline stage in the active
+// interface language. The Portuguese source names stay in nomesEtapas; the
+// translation happens at call time so a language change applies immediately.
 func NomeEtapa(etapa int) string {
 	if nome, ok := nomesEtapas[etapa]; ok {
-		return nome
+		return i18n.T(nome)
 	}
-	return fmt.Sprintf("etapa %d", etapa)
+	return i18n.T("etapa %d", etapa)
 }

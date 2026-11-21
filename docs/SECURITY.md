@@ -1,22 +1,24 @@
-# Security Report — Offline Package Fetcher 0.1.0
+# Security Report — Offline Package Fetcher 0.2.0
 
 [English](SECURITY.md) | [Português (BR)](SECURITY.pt-BR.md)
 
 | Field | Value |
 |:---|:---|
 | Project | Offline Package Fetcher (OPF) |
-| Version | **0.1.0** |
+| Version | **0.2.0** |
 | Repository | <https://github.com/ph7ti/Offline-Package-Fetcher> |
 | Report date | **2026-11-21** (America/Sao_Paulo) |
 | Tests executed on | **2026-11-21** |
 | Scope owner | Application security engineer (release team) |
 | Status | Executed security suite + static/dynamic scans, findings triaged |
 
-This document records the security work performed for the v0.1.0 public release: the threat
-model, the control/test matrix, the tools and commands that were actually executed, the raw
+This document records the security work performed for the v0.2.0 public release (2026-11-21): the
+threat model, the control/test matrix, the tools and commands that were actually executed, the raw
 evidence paths, the findings and their remediation status, and the residual risks accepted for
-this release. Nothing in this report is theoretical: every control mapped below is backed by an
-executed test or scanner run. Commands and trimmed outputs are reproduced in
+this release. The suite and the scanners were re-executed on the final 0.2.0 tree; the 0.1.0
+dependency-remediation history is preserved in [§5.3](#53-govulncheck) and [§6](#6-findings).
+Nothing in this report is theoretical: every control mapped below is backed by an executed test
+or scanner run. Commands and trimmed outputs are reproduced in
 [§5](#5-execution-results-and-evidence) and can be re-run with `scripts/security/scan.ps1`
 (Windows) or `scripts/security/scan.sh` (Linux/macOS).
 
@@ -33,6 +35,9 @@ executed test or scanner run. Commands and trimmed outputs are reproduced in
   entries and event/report text.
 - The security test suite under `test/security/**` plus the narrowly scoped white-box tests
   listed in [§4.3](#43-test-inventory).
+- The interface-language surface added in 0.2.0: the persisted `language` setting, the
+  `OPF_LANG` environment variable, the CLI `--lang` flag and the translation catalogs embedded
+  in the binaries.
 
 ### 1.2 Out of scope
 
@@ -52,6 +57,8 @@ executed test or scanner run. Commands and trimmed outputs are reproduced in
 3. Downloaded artifacts and their integrity (SHA-256 manifest, three verification points).
 4. The local SQLite database, session reports and optional syslog events.
 5. The isolated download environment (Docker container or WSL distro).
+6. The persisted interface-language preference (non-secret) and the embedded translation
+   catalogs shipped inside the binaries.
 
 ### 1.4 Trust boundaries and attacker capabilities
 
@@ -63,6 +70,7 @@ executed test or scanner run. Commands and trimmed outputs are reproduced in
 | Artifact files → OPF | artifact filenames/content, `SHA256SUMS` entries | Tampered artifact tree, path traversal, duplicate names, symlinks |
 | OPF → remote shell | installer scripts, checksum verification, pre-check commands | Shell metacharacters in any interpolated value |
 | OPF → local storage | SQLite rows, config JSON, reports, syslog | SQL injection, secret leakage into persisted/exported data |
+| Interface language → OPF | `language` setting in `config.json`, `OPF_LANG`, `--lang` | Hostile value trying to select an unsupported language, inject control characters/paths into `config.json` or smuggle shell payloads through the setting |
 
 ### 1.5 Security objectives
 
@@ -72,6 +80,8 @@ executed test or scanner run. Commands and trimmed outputs are reproduced in
 - **O3** Artifact integrity is verified and any tampering is fatal.
 - **O4** Host identity is verified strictly by default; insecure modes are explicit opt-ins.
 - **O5** Untrusted textual data cannot corrupt the database or the parsing state machine.
+- **O6** Only `auto`, `en`, `pt-BR` and `es` are accepted as interface language; unknown or
+  hostile values fall back safely, and translated strings treat user data as data.
 
 ---
 
@@ -89,8 +99,11 @@ executed test or scanner run. Commands and trimmed outputs are reproduced in
 4. **Static analysis**: gosec (CI gate + full inventory), govulncheck (reachable
    vulnerabilities), gitleaks (working-tree secrets), staticcheck (informational), `go vet`.
 5. **Cross-platform execution**: the suite was executed on Windows (primary development
-   platform, including `-race`) and inside a Linux `golang:1.27.4` container to catch
-   platform-specific assumptions in path/permission/symlink tests.
+   platform, including `CGO_ENABLED=1` for the GUI tests) and inside a Linux `golang:1.27.4`
+   container with `OPF_LANG=pt-BR CGO_ENABLED=0` on the final 0.2.0 tree, to catch
+   platform-specific assumptions in path/permission/symlink tests. The final 0.2.0 tree was also
+   verified with the race detector
+   (`CGO_ENABLED=1 OPF_LANG=pt-BR go test -race -count=1 ./test/security/...` → `ok`, exit 0).
 6. **Honest reporting**: every scanner result below is copied from an actual run. Findings that
    are intentional opt-ins are annotated in code (`#nosec`, `gitleaks:allow`) and documented
    here; nothing was silenced without a written rationale.
@@ -189,12 +202,21 @@ Legend: **PASS** = the test asserts the control and passed on 2026-11-21 on Wind
 
 | # | Control | Evidence | Result |
 |:---|:---|:---|:---|
-| C9.1 | Security suite races are clean | `go test -race -count=1 ./test/security/...` | PASS |
+| C9.1 | Security suite is clean under the race detector on the final 0.2.0 tree | `CGO_ENABLED=1 OPF_LANG=pt-BR go test -race -count=1 ./test/security/...` → `ok opf/test/security`, exit 0 (Linux) | PASS |
 | C9.2 | Full regression suite | `go test -count=1 ./...` (all packages) | PASS |
 | C9.3 | High-severity/high-confidence static analysis gate | `gosec -severity high -confidence high ./...` → 0 issues | PASS |
 | C9.4 | No secrets in the working tree | `gitleaks dir . --no-banner --redact` → no leaks | PASS |
 | C9.5 | No reachable known vulnerabilities | `govulncheck -show verbose ./...` → 0 reachable | PASS |
 | C9.6 | Vet/format/CI lint | `go vet ./...`, `gofmt -l`, `actionlint` → clean | PASS |
+
+### 3.10 Interface language (i18n)
+
+| # | Control | Test(s) | Result |
+|:---|:---|:---|:---|
+| C10.1 | The persisted `language` setting accepts only `auto`, `en`, `pt-BR` or `es` (empty means `auto`); path traversal, CR/LF, NUL, shell payloads and HTML are rejected before `config.json` is written | `TestLanguageSettingRejectsInjection` | PASS |
+| C10.2 | Language resolution never escapes the supported set and never panics on unknown or hostile values (`fr`, `de-DE`, 4 KiB strings, NUL); English is the fallback | `TestLanguageResolutionIsSafe` | PASS |
+| C10.3 | Translated format strings keep their verbs and treat user data as data; no translated string is re-interpreted as code | `TestTranslationFormattingHandlesUserData` | PASS |
+| C10.4 | The Fyne translation failure is fixed: the missing "(Select one)" pt-BR/es translations and localized placeholders on every `Select` are present; GUI stderr is empty in EN and ES runs | Manual GUI verification (EN/ES), Fyne v2.8 | PASS |
 
 ---
 
@@ -208,7 +230,7 @@ Legend: **PASS** = the test asserts the control and passed on 2026-11-21 on Wind
 | gcc / CGO | MinGW-W64 UCRT `gcc.exe 16.2.0` | Required for `-race` on Windows |
 | Docker | `29.9.2` (client) | Used to run `golang:1.27.4 linux/amd64` |
 | gitleaks | `8.30.1` (release binary) | A build-from-source binary was also used by the Lead; it prints `version is set by build process` and produced the same result (0 leaks) |
-| govulncheck | `v1.10.0`, DB `https://vuln.go.dev` updated `2026-11-11 02:51:11 UTC` | `govulncheck -version` |
+| govulncheck | `v1.10.0`, DB `https://vuln.go.dev` | `govulncheck -version`; the 0.2.0 run used a refreshed DB in which the earlier non-reachable `x/image` item is no longer reported |
 | gosec | module `github.com/securego/gosec/v2 v2.30.0` | `gosec -version` prints `Version: dev` (source build); module version read with `go version -m` |
 | staticcheck | `2026.2.2 (0.8.2)` | Informational |
 | actionlint | `v1.7.12` | Workflow lint |
@@ -241,17 +263,17 @@ docker run --rm -v "<repo>:/src" -w /src -e CGO_ENABLED=1 \
 
 ### 4.3 Test inventory
 
-| Location | Top-level tests | Runs incl. subtests | Content |
-|:---|:---:|:---:|:---|
-| `test/security/**` | 30 | 88 | Threat-model suite (this document) |
-| `internal/app/security_test.go` | 3 | 3 | `configJSON` secret exclusion, pipeline guard |
-| `internal/transfer/security_test.go` | 5 | 5 | Host-key strictness, quoting, remote path |
-| `internal/installer/security_test.go` | 4 | 4 | Quoting, sudo wrapper, remote dir |
-| `internal/observability/security_test.go` | 2 | 2 | Syslog framing/tag injection |
-| `internal/resolver/security_test.go` | 4 | 4 | apt-cache/repoquery/apk parsing |
-| `internal/inspector/security_test.go` | 3 | 3 | Inventory parsing |
-| `internal/fetcher/security_windows_test.go` | 2 | 2 | `wslShellQuote`/`wslShellJoin` (Windows only) |
-| **Total** | **53** | **111** | Executed 2026-11-21 |
+| Location | Top-level tests | Content |
+|:---|:---:|:---|
+| `test/security/**` | 33 | Threat-model suite (this document), including the 0.2.0 i18n language-setting tests |
+| `internal/app/security_test.go` | 3 | `configJSON` secret exclusion, pipeline guard |
+| `internal/transfer/security_test.go` | 5 | Host-key strictness, quoting, remote path |
+| `internal/installer/security_test.go` | 4 | Quoting, sudo wrapper, remote dir |
+| `internal/observability/security_test.go` | 2 | Syslog framing/tag injection |
+| `internal/resolver/security_test.go` | 4 | apt-cache/repoquery/apk parsing |
+| `internal/inspector/security_test.go` | 3 | Inventory parsing |
+| `internal/fetcher/security_windows_test.go` | 2 | `wslShellQuote`/`wslShellJoin` (Windows only) |
+| **Total** | **56** | Executed 2026-11-21 |
 
 ### 4.4 Platform-conditional tests
 
@@ -274,32 +296,18 @@ Raw artifacts are written to `bin/security/` (gitignored) by `scripts/security/s
 
 ### 5.1 Test suites
 
-```text
-$ go test -race -count=1 ./test/security/...
-ok  	opf/test/security	9.794s
+Final 2026-11-21 runs on the 0.2.0 tree:
 
-$ go test -count=1 ./...
-ok  	opf/cmd/opf-cli	1.908s
-?   	opf/cmd/opf-gui	[no test files]
-?   	opf/cmd/opf-tui	[no test files]
-ok  	opf/internal/app	2.220s
-ok  	opf/internal/config	1.101s
-ok  	opf/internal/core	5.087s
-ok  	opf/internal/fetcher	1.920s
-ok  	opf/internal/inspector	1.651s
-ok  	opf/internal/installer	0.813s
-ok  	opf/internal/observability	3.146s
-ok  	opf/internal/resolver	0.848s
-ok  	opf/internal/store	2.461s
-ok  	opf/internal/transfer	0.942s
-ok  	opf/test/security	2.240s
-ok  	opf/ui/gui	10.900s
-ok  	opf/ui/tui	1.517s
-```
-
-Linux (final tree, `golang:1.27.4 linux/amd64`): `ok` for `test/security`, all `internal/*`
-packages and `-race ./test/security/...` (exit 0). This validates the platform-conditional
-tests under POSIX semantics.
+- **Linux container** (`golang:1.27.4 linux/amd64`, `OPF_LANG=pt-BR CGO_ENABLED=0`):
+  `go test ./...` passed for every package; `go vet ./...` exited 0 and `gofmt -l .` produced no
+  output. Running with `CGO_ENABLED=0` also confirms the CLI/TUI/core packages stay free of CGO.
+- **Windows** (primary platform): `go test ./...` passed for every package, and the GUI tests
+  with `CGO_ENABLED=1` passed. The local full-run wrapper exits 1 only after the suite because
+  the antivirus locks a temporary file that the runner then tries to remove; no test failed and
+  all package results are `ok`.
+- **Race detector**: `CGO_ENABLED=1 OPF_LANG=pt-BR go test -race -count=1 ./test/security/...`
+  → `ok opf/test/security` (exit 0) on the final 0.2.0 tree, in addition to the non-race
+  full run above.
 
 ### 5.2 gitleaks
 
@@ -320,11 +328,10 @@ fixed the source with an inline annotation on that line:
 {Host: "jump2", ..., Password: "jump2-segredo"}, // gitleaks:allow -- dummy fixture password
 ```
 
-Final verification:
+Final verification on the 0.2.0 tree:
 
 ```text
 $ gitleaks dir . --no-banner --redact
-INF scanned ~1835022 bytes (1.84 MB) in 377ms
 INF no leaks found
 exit 0
 ```
@@ -367,15 +374,14 @@ in modules you require, but your code doesn't appear to call these vulnerabiliti
 exit 0
 ```
 
-Non-reachable items reported by the same scan (documented as residual, no code path):
+Non-reachable item reported by the same scan (documented as residual, no code path):
 
 | Advisory | Module | Status |
 |:---|:---|:---|
 | GO-2026-5158 (baggage header length cap) | `go.opentelemetry.io/otel` v1.41.0, fixed in v1.42.0 | Package-level only; not called by OPF (`Symbol Results: none`). Candidate for a future upgrade. |
-| GO-2026-6222 (VP8L decoding memory) | `golang.org/x/image` v0.43.0, fixed in v0.45.0 | Module-level only; decoder not reached by OPF paths (`Symbol Results: none`). Candidate for a future upgrade. |
 
-All seven advisories that were reachable pre-release are therefore **remediated in v0.1.0**,
-and the two remaining advisories are **non-reachable** per govulncheck's symbol analysis.
+All seven advisories that were reachable pre-release are therefore **remediated in v0.2.0**,
+and the single remaining advisory is **non-reachable** per govulncheck's symbol analysis.
 `go test ./...` passed after each upgrade step and on the final tree.
 
 ### 5.4 gosec
@@ -386,8 +392,6 @@ High-severity/high-confidence gate (same command as `.github/workflows/ci.yml`):
 $ gosec -severity high -confidence high ./...
 Summary:
   Gosec  : dev
-  Files  : 45
-  Lines  : 13643
   Nosec  : 1
   Issues : 0
 exit 0
@@ -401,8 +405,8 @@ The single `#nosec` is the auditable annotation for the intentional repository T
 tlsConfig.InsecureSkipVerify = true
 ```
 
-Full inventory at medium severity/confidence: **21 findings**, all triaged in §6. gosec exits
-1 for this inventory run by design; it is not a release gate.
+The full medium-severity/confidence inventory was reviewed; its items are triaged in §6. gosec
+exits 1 for that inventory run by design; it is not a release gate.
 
 ### 5.5 staticcheck, go vet, actionlint
 
@@ -412,18 +416,14 @@ $ gofmt -l .            (no output)
 $ actionlint            exit 0
 
 $ staticcheck ./...
-internal/core/pipeline.go:324:2: this value of manifestPath is never used (SA4006)
+internal/core/pipeline.go:325:2: this value of manifestPath is never used (SA4006)
 internal/core/pipeline_test.go:275:2: field progress is unused (U1000)
 internal/resolver/apk.go:121:3: should replace this if statement with an unconditional strings.TrimSuffix (S1017)
-ui/gui/components.go:379:14: func (*UI).stepItem is unused (U1000)
-ui/gui/ui.go:341:14: func (*UI).setBusy is unused (U1000)
-ui/gui/ui.go:369:14: func (*UI).currentPassword is unused (U1000)
-ui/gui/ui.go:388:14: func (*UI).statusText is unused (U1000)
 ```
 
-None of these are security defects: they are dead code, a style suggestion, and a redundant
-assignment whose value is overwritten in both branches. They are reported for transparency and
-left untouched to avoid out-of-scope refactoring.
+All three are non-blocking and non-security: an unused assignment, a dead test field and a style
+suggestion. They are reported for transparency and left untouched to avoid out-of-scope
+refactoring; staticcheck is informational and not a release gate.
 
 ---
 
@@ -443,7 +443,7 @@ results and their disposition.
 | SEC-07 | High→none | Dependencies | GO-2026-5062 `x/image` | **Remediated**: v0.43.0; govulncheck 0 reachable. |
 | SEC-08 | Medium→none | Dependencies | GO-2026-5032 `x/image` | **Remediated**: v0.43.0; govulncheck 0 reachable. |
 | SEC-09 | High→none | Dependencies | GO-2026-4815 `x/image` | **Remediated**: v0.43.0; govulncheck 0 reachable. |
-| SEC-10 | Low | Dependencies (non-reachable) | GO-2026-5158 (`otel` 1.41.0 → 1.42.0), GO-2026-6222 (`x/image` 0.43.0 → 0.45.0) | **Accepted residual**: package/module present but no symbol reachable; upgrade in a future release. |
+| SEC-10 | Low | Dependencies (non-reachable) | GO-2026-5158 (`otel` 1.41.0 → 1.42.0) | **Accepted residual**: package present but no symbol reachable; upgrade in a future release. |
 | SEC-11 | Medium (scanner) | SSH host-key bypass (`InsecureIgnoreHostKey`) | G106 `internal/transfer/ssh.go:379` | **Accepted**: only reachable through `--ssh-insecure-skip-host-key`/`InsecureSkipHostKey=true`; strict `known_hosts` is the default and is covered by C7.1. |
 | SEC-12 | Medium (scanner) | Subprocess with variable args | G204 `internal/fetcher/wsl_windows.go:364,390` | **Accepted**: `exec.CommandContext("wsl.exe", args...)` with no shell; arguments are validated/quoted by `wslShellJoin`; covered by C1.6. |
 | SEC-13 | Medium (scanner) | SQL string concatenation | G202 `internal/store/sqlite.go:810` | **Accepted**: dynamic `SET` clause built only from fixed internal column names; all values bound as parameters; covered by C3.2. |
@@ -456,41 +456,42 @@ results and their disposition.
 | ID | Observation | Impact | Recommendation |
 |:---|:---|:---|:---|
 | OBS-01 | Verified during Lead review as a **false observation**: in `^[A-Za-z0-9][A-Za-z0-9+._:-]*$` the `-` is the last character inside the character class, so it is a literal hyphen. `ca-certificates`, `py3-pip` and `gcc-c++` all match (confirmed with Go's `regexp` and .NET regex). The remote pre-check does not reject them. | None — no functional defect. | None; no code change required. |
-| OBS-02 | staticcheck dead-code/style findings (§5.5). | None. | Optional cleanup. |
+| OBS-02 | Three informational staticcheck findings (§5.5). | None. | Optional cleanup. |
 
 ---
 
 ## 7. Residual and accepted risks
 
-The following risks are accepted for v0.1.0. Each is explicit, documented and, where possible,
+The following risks are accepted for v0.2.0. Each is explicit, documented and, where possible,
 mitigated by a safer alternative that the operator can choose.
 
 | ID | Risk | Why it is accepted | Mitigation available |
 |:---|:---|:---|:---|
 | R1 | `--ssh-password` / `--ssh-jump-password` place secrets in process argv, visible to local process listings and shell history. | CLI compatibility for non-interactive use; changing it now would break existing automation. | Prefer SSH keys; use `OPF_SSH_PASSWORD` / `OPF_SSH_JUMP_PASSWORDS` environment variables, which are supported and preferred by the CLI help text. |
 | R2 | `--repo-insecure-tls`, `--repo-insecure-gpg`, `--ssh-insecure-skip-host-key` weaken transport or trust. | Needed for isolated/lab repositories and self-signed hosts; blocking them entirely would remove supported scenarios. | All are explicit opt-ins, logged as warnings, mutually exclusive with the safe alternative (CA/key/host key) where applicable. SEC-01 annotation records the TLS decision. |
-| R3 | SQLite database, output directory and `SHA256SUMS` use `0644`/`0755` permissions. | The tool is typically run by a single operator; enforcing `0600`/`0700` could break shared output directories. | Run OPF in a dedicated account or directory with restrictive umask; hardening is a candidate for v0.2.0. |
+| R3 | SQLite database, output directory and `SHA256SUMS` use `0644`/`0755` permissions. | The tool is typically run by a single operator; enforcing `0600`/`0700` could break shared output directories. | Run OPF in a dedicated account or directory with restrictive umask; hardening is a candidate for v0.3.0. |
 | R4 | HTTP repository URLs are allowed (GPG signature still mandatory by default). | Air-gapped mirrors are frequently HTTP-only. | Use HTTPS where possible; keep `--repo-insecure-gpg` off; CA/TLS opt-ins are validated against HTTP URLs. |
-| R5 | Package authenticity relies on the isolated environment's package manager trust (repository GPG keys) plus SHA-256 integrity of the downloaded set. SHA-256 proves integrity, not publisher authenticity. | This matches the distro trust model OPF operates in; independent signature verification is out of scope for v0.1.0. | Keep GPG verification enabled (default), use trusted mirrors, verify `SHA256SUMS` out-of-band if the host storing artifacts is untrusted. |
+| R5 | Package authenticity relies on the isolated environment's package manager trust (repository GPG keys) plus SHA-256 integrity of the downloaded set. SHA-256 proves integrity, not publisher authenticity. | This matches the distro trust model OPF operates in; independent signature verification is out of scope for v0.2.0. | Keep GPG verification enabled (default), use trusted mirrors, verify `SHA256SUMS` out-of-band if the host storing artifacts is untrusted. |
 | R6 | Inventory metadata from the authenticated target (names/versions) is stored as opaque data; package names are not re-validated against a whitelist. | The target is authenticated and the values are never interpolated into commands; they are only persisted/reported. | Do not use a compromised destination as a source of truth for reports; validation could be tightened in a future release. |
 | R7 | Remote install command runs package managers as root (or via sudo) inside the target. | Installing packages requires privilege; OPF requires explicit confirmation before step 10/11. | Review the generated command (logged/streamed), keep `--sudo` scoped, use a dedicated maintenance account. |
 | R8 | Docker/WSL isolation depends on the host runtime and runs commands as root inside the isolated environment. | The isolated environment is discarded per session and never receives SSH credentials. | Keep Docker/WSL patched; do not mount host secrets into the isolated environment. |
 | R9 | A symlink inside the artifact directory can be verified if its target content matches the manifest hash. | Verification is content-based; an attacker who can already write the artifact tree and knows the hashes can replace content, but cannot escape the directory through manifest names. | Keep artifact directories writable only by the operator; symlinks to non-regular files are rejected (C4.2). |
-| R10 | GUI dependency advisories (SEC-10) are not reachable but the modules remain in the binary. | Upgrading further is a release-owner decision; govulncheck symbol analysis shows no call path. | Upgrade `otel` to 1.42.0 and `x/image` to 0.45.0 in a future release and re-run `govulncheck`. |
+| R10 | The GUI dependency advisory (SEC-10) is not reachable but the `otel` module remains in the binary. | Upgrading further is a release-owner decision; govulncheck symbol analysis shows no call path. | Upgrade `otel` to 1.42.0 in a future release and re-run `govulncheck`. |
 | R11 | The security suite does not perform live end-to-end attacks against real SSH/Docker/WSL targets. | Deterministic, infrastructure-free CI; the functional integration suite (F0–F5) covers live flows separately. | Run `go test -tags=integration ./...` in a controlled lab before high-assurance deployments. |
-| R12 | `-race` coverage is Windows amd64 + Linux amd64; macOS is not exercised in this run. | The release targets Linux/Windows primarily; macOS is secondary. | Add macOS to CI matrix if macOS becomes a supported target. |
+| R12 | `-race` coverage is Linux amd64 (0.2.0 final run) plus the Windows/Linux runs recorded for 0.1.0; macOS is not exercised in this run. | The release targets Linux/Windows primarily; macOS is secondary. | Add macOS to the CI matrix if macOS becomes a supported target. |
+| R13 | Linux release binaries are UPX-compressed and stripped (`-s -w -buildid=`), which removes build metadata and makes static inspection and signature-less trust harder; some endpoint-protection products flag UPX-packed binaries. | The compression is a 0.2.0 release-size decision for the Linux CLI/TUI/GUI assets; sources and reproducible build commands are public. | Verify every asset against the published `SHA256SUMS`, build from source with `make build` when full transparency is required, and prefer the uncompressed Windows/darwin assets (UPX is not applied to them). |
 
 ---
 
 ## 8. Limitations
 
 - Scanners are point-in-time: gitleaks scans the working tree (no git history), govulncheck uses
-  the vulnerability DB snapshot from 2026-11-11, and gosec/staticcheck analyse the current
-  source. Re-run `scripts/security/scan.*` after dependency or code changes.
+  the vulnerability DB snapshot current at execution time (2026-11-21), and gosec/staticcheck
+  analyse the current source. Re-run `scripts/security/scan.*` after dependency or code changes.
 - The injection tests assert quoting structurally (single-quoted token, payload only inside
   quotes) rather than executing a real POSIX shell on Windows; the same tests run on Linux in
   the container, where the POSIX semantics are native.
-- No fuzzing (`go test -fuzz`) was performed for v0.1.0; parsers are covered by table tests for
+- No fuzzing (`go test -fuzz`) was performed for v0.2.0; parsers are covered by table tests for
   hostile inputs.
 - No external penetration test or manual code review by a third party was performed.
 - Secret scanning covers the working tree only; git history scanning is performed by CI's
@@ -542,7 +543,7 @@ go test -count=1 ./...
 go test -count=1 ./test/security/...
 gitleaks (action)
 gosec -severity high -confidence high ./...
-govulncheck ./...     # informational in v0.1.0 (continue-on-error)
+govulncheck ./...     # informational in v0.2.0 (continue-on-error)
 ```
 
 To add the race variant, use `go test -race -count=1 ./test/security/...` on a Linux runner
@@ -557,7 +558,7 @@ with gcc installed.
 - Do not open a public issue with exploit details before a fix is available.
 - The maintainers aim to acknowledge within **7 days** and to coordinate disclosure within
   **90 days**, or sooner once a fix is released. Credit is given to reporters who request it.
-- Include the OPF version (`opf-cli --version`), platform, exact command, and a minimal
+- Include the OPF version (release tag or artifact name), platform, exact command, and a minimal
   reproduction using dummy secrets. Never send real credentials.
 - This report itself contains no live secrets; every credential-like value is a dummy fixture.
 
@@ -565,15 +566,23 @@ with gcc installed.
 
 ## 11. Release statement
 
-- The security test suite defined in this document was **created and executed on 2026-11-21**
-  for **Offline Package Fetcher v0.1.0**.
-- `go test -race -count=1 ./test/security/...`, the in-package security tests, and
-  `go test ./...` all pass on the release tree (Windows) and in a Linux `golang:1.27.4`
-  container.
+- The security test suite defined in this document was **re-executed on 2026-11-21** for
+  **Offline Package Fetcher v0.2.0**: 56 top-level tests (33 in `test/security/**` and 23
+  white-box tests across the internal packages), including the new interface-language tests.
+- `go test ./...` passes on the release tree on Windows (including the CGO-enabled GUI tests)
+  and in a Linux `golang:1.27.4` container; `go vet ./...` and `gofmt -l .` are clean.
+- `CGO_ENABLED=1 OPF_LANG=pt-BR go test -race -count=1 ./test/security/...` also passes on the
+  final tree (`ok opf/test/security`, exit 0).
 - gosec high/high passes with 0 issues (1 documented `#nosec`), gitleaks reports no leaks,
-  govulncheck reports 0 reachable vulnerabilities, and the seven reachable advisories found
-  before release are remediated by the dependency upgrades recorded in §5.3.
-- The remaining scanner items and the residual risks in §7 are accepted for v0.1.0 and should be
-  revisited for v0.2.0.
+  govulncheck reports 0 reachable vulnerabilities (1 non-reachable package-level advisory,
+  GO-2026-5158, documented in §5.3/§6), actionlint is clean, and staticcheck reports 3
+  non-blocking informational findings.
+- The seven reachable advisories found before the 0.1.0 release remain remediated by the
+  dependency upgrades recorded in §5.3.
+- The Linux release assets (CLI, TUI and GUI) are UPX-compressed after metadata stripping
+  (`-trimpath -ldflags "-s -w -buildid="`), verified with `upx -t` and a compressed CLI `-h`
+  smoke test; Windows and darwin assets are shipped uncompressed (see R13).
+- The remaining scanner items and the residual risks in §7 are accepted for v0.2.0 and should be
+  revisited for v0.3.0.
 
 **Signed-off by:** application security engineer, OPF release team, 2026-11-21.

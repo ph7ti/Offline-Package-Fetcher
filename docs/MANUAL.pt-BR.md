@@ -1,6 +1,6 @@
 [English](MANUAL.md) | **Português (BR)**
 
-# Manual do Usuário — Offline Package Fetcher (OPF) v0.1.0
+# Manual do Usuário — Offline Package Fetcher (OPF) v0.2.0
 
 Este manual é a referência operacional do OPF: descreve cada tela, cada flag, o pipeline de 13 etapas, o banco SQLite, os relatórios, o Syslog e os procedimentos de diagnóstico. Para uma visão geral do projeto, comece pelo [README em português](README.pt-BR.md).
 
@@ -40,7 +40,7 @@ O OPF **faz**:
 - instalar no destino após confirmação explícita;
 - registrar tudo em SQLite e exportar relatórios JSON/Markdown, além de enviar eventos a um Syslog externo.
 
-O OPF **não faz** (v0.1.0):
+O OPF **não faz** (v0.2.0):
 
 - configurar repositórios no servidor de destino;
 - autenticar em repositórios privados com usuário/senha;
@@ -100,7 +100,7 @@ Observações:
 
 ### 4.1 Binários da release
 
-1. Acesse a página da release `v0.1.0`.
+1. Acesse a página da release `v0.2.0`.
 2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto.
 3. Verifique o hash:
 
@@ -119,6 +119,33 @@ chmod +x opf-cli
 sudo install -m 0755 opf-cli /usr/local/bin/opf-cli
 ```
 
+Cada release publica 12 ativos (11 binários e `SHA256SUMS`): CLI e TUI em linux/amd64, linux/arm64, windows/amd64, darwin/amd64 e darwin/arm64, além de `opf-gui-linux-amd64`.
+
+#### Tamanho dos binários e compressão
+
+Builds de produção removem metadados com `-trimpath -ldflags "-s -w -buildid="`. Os ativos Linux são então comprimidos com UPX `--best --lzma` e verificados com `upx -t`; o workflow de release também executa `opf-cli -h` no binário comprimido como smoke test. Tamanhos medidos em 2026-11-21:
+
+| Ativo | Sem compressão (bytes) | UPX (bytes) | Redução |
+|:---|--:|--:|--:|
+| `opf-cli-linux-amd64` | 14.540.924 | 4.548.248 | -68,72% |
+| `opf-tui-linux-amd64` | 15.396.988 | 4.946.584 | -67,87% |
+| `opf-gui-linux-amd64` | 33.762.840 | 12.305.644 | -63,55% |
+| `opf-cli-linux-arm64` | 13.697.148 | 3.941.072 | -71,23% |
+| `opf-tui-linux-arm64` | 14.483.580 | 4.107.204 | -71,64% |
+
+Ativos Windows e macOS são publicados sem compressão: produtos de proteção de endpoint bloqueiam PE empacotados com UPX e o UPX não empacota binários Mach-O. Tamanhos medidos:
+
+| Ativo | Tamanho (bytes) |
+|:---|--:|
+| `opf-cli-windows-amd64.exe` | 14.781.440 |
+| `opf-tui-windows-amd64.exe` | 15.679.488 |
+| `opf-cli-darwin-amd64` | 14.627.072 |
+| `opf-cli-darwin-arm64` | 13.807.426 |
+| `opf-tui-darwin-amd64` | 15.492.608 |
+| `opf-tui-darwin-arm64` | 14.634.338 |
+
+O `opf-gui` é publicado apenas para linux/amd64; o build Windows da GUI (34.168.832 bytes) é produzido pela CI, mas não é ativo de release.
+
 ### 4.2 Build a partir do código
 
 ```bash
@@ -130,15 +157,16 @@ make build        # bin/opf-cli   (CGO_ENABLED=0)
 make build-tui    # bin/opf-tui   (CGO_ENABLED=0)
 make build-gui    # bin/opf-gui   (CGO_ENABLED=1)
 make build-linux  # bin/opf-cli-linux-amd64 (cross-compile)
+make compress     # opcional (Linux): UPX --best --lzma + upx -t
 ```
 
-No Windows, sem `make`:
+Os alvos do Makefile usam `-trimpath -ldflags "-s -w -buildid="`, as mesmas flags do workflow de release. No Windows, sem `make`:
 
 ```powershell
 # Go 1.27.4 instalado e disponível no PATH (go version => go1.27.4)
 New-Item -ItemType Directory -Force bin | Out-Null
-go build -trimpath -ldflags "-s -w" -o bin/opf-cli.exe ./cmd/opf-cli
-go build -trimpath -ldflags "-s -w" -o bin/opf-tui.exe ./cmd/opf-tui
+go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-cli.exe ./cmd/opf-cli
+go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-tui.exe ./cmd/opf-tui
 ```
 
 ### 4.3 Verificação pós-instalação
@@ -150,7 +178,7 @@ opf-tui           # abre o menu principal (Ctrl+C encerra)
 opf-gui           # abre a janela; sem CGO, encerra com mensagem orientativa
 ```
 
-O `opf-cli -h` termina com `opf-cli: flag: help requested` e código de saída `1`; isso é esperado, pois o `flag` padrão do Go sinaliza ajuda como erro.
+O `opf-cli -h` imprime a referência das flags no idioma da interface e sai com código `0`.
 
 ### 4.4 Configurações globais (GUI/TUI)
 
@@ -174,6 +202,7 @@ O diretório é criado com `0700` e o arquivo é publicado de forma atômica com
 | `wsl_distro` | string | vazio | distro WSL padrão |
 | `include_optional` | bool | `false` | dependências opcionais |
 | `force_reinstall` | bool | `false` | forçar reinstalação |
+| `language` | string | `auto` | idioma da interface: `auto`, `en`, `pt-BR` ou `es` |
 | `syslog_enabled` | bool | `false` | habilita Syslog |
 | `syslog_host` | string | vazio | coletor |
 | `syslog_port` | int | `514` | porta |
@@ -233,7 +262,7 @@ A distro informada precisa estar registrada (`wsl --list --verbose`), ser Ubuntu
 
 ## 6. GUI passo a passo
 
-A GUI (`opf-gui`) é um binário Fyne separado, compilado com `CGO_ENABLED=1`. O fluxo é **SSH-first**: uma nova sessão começa pela conexão e detecção do destino; a configuração manual fica em **Avançado**.
+A GUI (`opf-gui`) é um binário Fyne separado, compilado com `CGO_ENABLED=1`. O fluxo é **SSH-first**: uma nova sessão começa pela conexão e detecção do destino; a configuração manual fica em **Avançado**. Os rótulos de tela e de campos seguem o idioma da interface; este manual cita os rótulos-fonte em português do Brasil.
 
 ### 6.1 Início
 
@@ -332,8 +361,9 @@ Lista de sessões com cartões (`Relatório`, `Retomar`, `Arquivar`). Na GUI, **
 | **Diretório temporário** | base para temporários do host durante o prepare |
 | **Timeout de etapa (segundos)** | padrão `600` (10 minutos) |
 | **Syslog: Habilitar, Host, Porta, Protocolo, Tag** | envio assíncrono RFC 5424 (UDP/TCP) |
+| **Idioma da interface** | idioma dos textos: **Automático (sistema)**, **English**, **Português (BR)** ou **Español**; `auto` segue `OPF_LANG` e depois o sistema operacional |
 
-**Salvar configurações** valida timeout (`> 0`), porta (`1..65535`) e host obrigatório quando o Syslog está habilitado, grava o `config.json` com permissão `0600` e reabre o banco.
+**Salvar configurações** valida timeout (`> 0`), porta (`1..65535`), host obrigatório quando o Syslog está habilitado e o idioma selecionado, grava o `config.json` com permissão `0600` e reabre o banco. A troca de idioma é aplicada imediatamente e redesenha a tela atual e os textos de ajuda.
 
 A barra superior traz atalhos **Início**, **Histórico**, **Configurações** (desabilitados durante a execução) e o botão **Tema** (claro/escuro, preferência salva); a barra inferior mostra o estado (`pronto para operar`, `pipeline em execução`, `sessão #N`, `SQLite indisponível`), o nome do banco e o tema atual.
 
@@ -370,7 +400,9 @@ Navegação: `↑`/`↓` ou `k`/`j`; `Enter` seleciona; `q` sai. O rodapé confi
 | **Resultado** | `r` relatório, `h` histórico, `n` nova sessão, `esc` início | mostra sessão, artefatos, saída, manifesto, destino remoto e já instalados |
 | **Relatório da sessão** | `↑`/`↓`/`k`/`j` rolar, `pgup`/`pgdown`, `J` JSON, `M` Markdown, `S` Syslog, `esc` volta | exporta `opf-relatorio-<id>.json/.md` no diretório de saída |
 | **Histórico** | `↑`/`↓`, `enter` abrir relatório, `r` retomar, `a` arquivar, `esc` voltar | sessões arquivadas marcadas com `(arquivada)` |
-| **Configurações Globais** | `tab`/`↑↓`, `ctrl+s` salva, `esc` volta | temporário, timeout, Syslog (host, porta, protocolo, tag) |
+| **Configurações Globais** | `tab`/`↑↓`, `ctrl+s` salva, `esc` volta | temporário, timeout, idioma da interface, Syslog (host, porta, protocolo, tag) |
+
+O campo **Idioma da interface** aceita `auto`, `en`, `pt-BR` ou `es` (os apelidos `pt` e `pt_BR` são normalizados). `auto` segue `OPF_LANG` quando definida e, caso contrário, o sistema operacional. Ao salvar, o valor é validado, persistido em `config.json` e a tela de configurações, os rótulos dos formulários e os textos de ajuda são redesenhados imediatamente no novo idioma.
 
 ### 7.3 Fluxo recomendado na TUI
 
@@ -385,7 +417,7 @@ Erros de digitação/validação aparecem em vermelho no rodapé da tela; `esc` 
 
 ## 8. Referência da CLI
 
-A CLI usa o pacote `flag` da biblioteca padrão: aceita `-flag` e `--flag`. Flags repetíveis estão marcadas como “repetível”.
+A CLI usa o pacote `flag` da biblioteca padrão: aceita `-flag` e `--flag`. Flags repetíveis estão marcadas como “repetível”. Ajuda, mensagens e erros seguem o idioma da interface (ver [8.11 Idioma da interface](#811-idioma-da-interface)); por padrão, segue o idioma do sistema operacional. As mensagens citadas neste manual são as strings-fonte em português do Brasil.
 
 ### 8.1 Alvo e saída
 
@@ -514,8 +546,10 @@ As listas são alinhadas por índice com `--ssh-jump`; contagens divergentes ger
 | `use --ssh-jump-password ou OPF_SSH_JUMP_PASSWORDS, não ambos` | duas fontes | escolha uma |
 | `--sudo exige --ssh-password/OPF_SSH_PASSWORD ...` | sudo sem senha | informe a senha |
 | `argumentos inesperados: ...` | argumento posicional | remova o argumento |
+| `--lang inválido: "..." (use auto, en, pt-BR ou es)` | valor de idioma não suportado | use `auto`, `en`, `pt-BR` ou `es` |
+| `--lang exige um valor` | `--lang` sem valor | informe um dos valores suportados |
 
-Erros são impressos como `opf-cli: <mensagem>` em `stderr`, com código de saída `1`.
+Erros são impressos como `opf-cli: <mensagem>` em `stderr`; código de saída `1` para erro de validação ou falha de pipeline. A ajuda com `-h`/`--help` sai com código `0`.
 
 ### 8.10 Saída padrão da CLI
 
@@ -532,6 +566,24 @@ relatório Markdown: <caminho>        # apenas com --export-markdown
 instalação: concluída                # apenas com --install aceito
 instalação: recusada; pacotes permanecem enviados   # quando recusada
 ```
+
+### 8.11 Idioma da interface
+
+O OPF segue o idioma do sistema operacional por padrão. São suportados inglês, português do Brasil (pt-BR) e espanhol (es); se o idioma do SO não for um deles, a interface inicia em inglês. A flag da CLI tem precedência sobre tudo, e `OPF_LANG` sobrepõe a detecção do SO quando a flag está em `auto` ou é omitida:
+
+| Flag | Tipo | Default | Observações |
+|:---|:---|:---|:---|
+| `--lang` | string | `auto` | `auto`, `en`, `pt-BR` ou `es`; `-lang` e `--lang` são aceitos |
+
+| Variável | Conteúdo |
+|:---|:---|
+| `OPF_LANG` | `auto`, `en`, `pt-BR` ou `es`; consultada quando `--lang` está em `auto`/omitida (também afeta a inicialização da GUI e da TUI) |
+
+Precedência: `--lang` > `OPF_LANG` > sistema operacional. Os apelidos `pt` e `pt_br` são aceitos sem diferenciar maiúsculas; valor não suportado em `--lang` gera erro de validação (`--lang inválido: ...`).
+
+O idioma se aplica à ajuda/uso das flags, mensagens de erro, progresso no console, nomes e mensagens das etapas do pipeline e rótulos do relatório Markdown; a GUI e a TUI também traduzem suas strings visíveis (ver [6. GUI passo a passo](#6-gui-passo-a-passo) e [7. TUI passo a passo](#7-tui-passo-a-passo)). `-h`/`--help` imprime a referência no idioma ativo e sai com código `0`.
+
+Limitação na 0.2.0: os diagnósticos de baixo nível permanecem em português do Brasil independentemente do idioma selecionado. Isso inclui a saída dos gerenciadores de pacotes e do ambiente isolado (apt/dpkg, dnf/yum/rpm, apk, ferramentas Docker/WSL), as causas de erro emitidas pelas camadas de fetch, transferência, instalação, resolução, inspeção, armazenamento, configuração e aplicação, e parte das linhas de log interna (slog).
 
 ## 9. Detecção remota do alvo
 
@@ -699,7 +751,7 @@ opf-cli --target ubuntu:22.04 --arch amd64 --pkg mytool \
 
 - A lista é **aditiva**: repositórios oficiais continuam habilitados; não há pin/priority.
 - No WSL (ambiente persistente), os arquivos usam prefixo de sessão e são removidos no cleanup; no Docker o contêiner é efêmero.
-- Nenhuma credencial de repositório é aceita ou armazenada na v0.1.0.
+- Nenhuma credencial de repositório é aceita ou armazenada na v0.2.0.
 - Chave e CA são material público e podem aparecer em `config_json` (metadados), mas nunca em relatórios como segredo.
 - Em retomadas, a lista é repovoada; se a chave/CA local sumiu, o erro cita o repositório afetado.
 
@@ -755,6 +807,8 @@ opf-cli --pkg vim --ssh-host alvo.interno --ssh-user admin \
 
 ### 13.1 As etapas
 
+Os nomes das etapas acompanham o idioma da interface; a tabela abaixo usa os nomes-fonte em português do Brasil. O rótulo gravado em `etapas_sessao` é o que estava ativo quando a etapa rodou, enquanto a GUI e a TUI redesenham os rótulos ao vivo no idioma atual.
+
 | # | Nome | O que acontece | Observações |
 |:---:|:---|:---|:---|
 | 1 | abrir sessão | cria o registro em `sessoes`, grava `config_json` e os roots em `pacotes_solicitados` | etapa sempre executada no início |
@@ -789,7 +843,7 @@ Efeitos:
 
 ### 13.3 Retomada por checkpoint
 
-A retomada existe na **GUI** (botão **Retomar**/ação **Continuar**) e na **TUI** (`r` no histórico / **Continuar sessão**). A CLI da v0.1.0 não expõe retomada.
+A retomada existe na **GUI** (botão **Retomar**/ação **Continuar**) e na **TUI** (`r` no histórico / **Continuar sessão**). A CLI da v0.2.0 não expõe retomada.
 
 Etapa segura calculada a partir de `etapas_sessao`:
 
@@ -888,7 +942,7 @@ Gerado por `--export-json` (CLI) ou **Exportar JSON** (GUI/TUI). Estrutura:
 
 ### 15.2 Relatório Markdown
 
-Seções: **Host remoto**, **Destino e armazenamento**, **Pacotes solicitados**, **Pacotes** (tabela com papel, versão, versão anterior, arquitetura, status e SHA-256) e **Eventos**. O rodapé informa que a exportação foi gerada localmente, sem segredos.
+Seções: **Host remoto**, **Destino e armazenamento**, **Pacotes solicitados**, **Pacotes** (tabela com papel, versão, versão anterior, arquitetura, status e SHA-256) e **Eventos**. O rodapé informa que a exportação foi gerada localmente, sem segredos. Os rótulos e o rodapé acompanham o idioma da interface; os nomes acima são as strings-fonte em português do Brasil. Os relatórios são renderizados no idioma ativo no momento da exportação; as mensagens de evento gravadas no SQLite mantêm o idioma em que foram registradas, e chaves JSON, valores de papel (`principal`/`dependente`) e códigos de status nunca são traduzidos.
 
 Arquivos são gravados com permissão `0600`; diretórios intermediários são criados com `0700` quando necessário.
 
@@ -939,7 +993,7 @@ Antes de operar em produção:
 - [ ] Fixe imagens Docker (`--image`) quando precisar de reprodutibilidade.
 - [ ] Proteja o banco: `chmod 600 opf.db` e cuidado com `opf.db-wal`/`opf.db-shm`.
 - [ ] Valide o `SHA256SUMS` recebido no destino antes de instalar (o pipeline já faz P3; confira em auditorias).
-- [ ] Mantenha o Syslog em rede gerencial; o transporte é UDP/TCP sem TLS na v0.1.0.
+- [ ] Mantenha o Syslog em rede gerencial; o transporte é UDP/TCP sem TLS na v0.2.0.
 - [ ] Revise os relatórios exportados antes de compartilhar (contêm host, usuário e kernel).
 - [ ] Rode o OPF com um usuário local sem privilégios; o acesso remoto é o único privilegiado.
 - [ ] Atualize Docker/WSL e o próprio OPF; acompanhe o changelog e avisos de segurança.
@@ -954,13 +1008,14 @@ Antes de operar em produção:
 | Posso informar vários pacotes? | Sim: repita `--pkg` ou separe por vírgula. Cada sessão gera um manifesto, uma transferência e uma instalação. |
 | Como incluir dependências opcionais? | `--with-optional` (APT: Recommends/Suggests/Enhances; DNF: weak deps). APK não distingue opcionais. |
 | O OPF configura os repositórios no destino? | Não. Repositórios adicionais existem apenas no ambiente isolado de download. |
-| Como retomar uma sessão que falhou? | Use a GUI (**Continuar**/**Retomar**) ou a TUI (`r` no histórico). A CLI da v0.1.0 não retoma, e etapas de instalação nunca são retomadas sem nova confirmação. |
+| Como retomar uma sessão que falhou? | Use a GUI (**Continuar**/**Retomar**) ou a TUI (`r` no histórico). A CLI da v0.2.0 não retoma, e etapas de instalação nunca são retomadas sem nova confirmação. |
 | Minhas senhas ficam salvas? | Não. Senhas de SSH, sudo e pontes ficam apenas em memória; `config_json` guarda somente metadados. |
 | Por que o download não mostra MB/s? | Porque `apt`, `dnf` e `apk` não fornecem métricas estruturadas confiáveis; bytes reais aparecem apenas no upload SFTP, controlado pelo OPF. |
 | Funciona no macOS? | Sim, como plataforma secundária, com Docker. A GUI requer Xcode Command Line Tools. |
 | E no Windows sem Docker? | Use WSL2 com uma distro Ubuntu/Debian da mesma versão do alvo; apenas a família APT é suportada. |
 | Onde ficam os arquivos baixados? | Em `<out>/sessao-<id>/` com o manifesto `SHA256SUMS`. O padrão é `./opf-output`. |
-| Posso usar um repositório privado com usuário e senha? | Não na v0.1.0. URLs com credenciais são rejeitadas; use chave/CA e, se necessário, um proxy autenticado na rede. |
+| Posso usar um repositório privado com usuário e senha? | Não na v0.2.0. URLs com credenciais são rejeitadas; use chave/CA e, se necessário, um proxy autenticado na rede. |
+| Posso mudar o idioma da interface? | Sim. A GUI e a TUI oferecem **Idioma da interface** em **Configurações Globais** (`auto`, `en`, `pt-BR`, `es`), a CLI aceita `--lang` e a variável `OPF_LANG` define o padrão quando a opção é `auto`. O padrão segue o idioma do sistema, com inglês como fallback. |
 | Como auditar o que foi instalado? | Consulte o relatório JSON/Markdown da sessão (papel principal/dependente, versão anterior, status, hashes) e as tabelas `pacotes`, `eventos` e `etapas_sessao`. |
 
 ## 19. Glossário
@@ -989,7 +1044,7 @@ Antes de operar em produção:
 ## 20. Versão e licença
 
 - **Produto:** Offline Package Fetcher (OPF)
-- **Versão deste manual:** 0.1.0
+- **Versão deste manual:** 0.2.0
 - **Licença:** GNU General Public License v3.0 — consulte [LICENSE](../LICENSE)
 - **Repositório:** <https://github.com/ph7ti/Offline-Package-Fetcher>
 - **Changelog:** [CHANGELOG.md](../CHANGELOG.md)

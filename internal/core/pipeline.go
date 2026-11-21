@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"opf/internal/i18n"
 	"opf/internal/transfer"
 )
 
@@ -67,24 +68,24 @@ type PipelineResult struct {
 // segura a partir de cfg.ResumeFrom.
 func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (result *PipelineResult, err error) {
 	if cfg.Repo == nil {
-		return nil, errors.New("repositório não configurado")
+		return nil, errors.New(i18n.T("repositório não configurado"))
 	}
 	if cfg.Fetcher == nil {
-		return nil, errors.New("fetcher não configurado")
+		return nil, errors.New(i18n.T("fetcher não configurado"))
 	}
 	if s == nil {
-		return nil, errors.New("sessão nula")
+		return nil, errors.New(i18n.T("sessão nula"))
 	}
 	roots := collectPackageRoots(cfg)
 	if len(roots) == 0 {
-		return nil, errors.New("nenhum pacote informado")
+		return nil, errors.New(i18n.T("nenhum pacote informado"))
 	}
 	if cfg.Installer != nil {
 		if cfg.Transfer == nil {
-			return nil, errors.New("instalação remota exige transferência SSH configurada")
+			return nil, errors.New(i18n.T("instalação remota exige transferência SSH configurada"))
 		}
 		if cfg.ConfirmInstall == nil {
-			return nil, errors.New("instalação remota exige confirmação explícita do usuário")
+			return nil, errors.New(i18n.T("instalação remota exige confirmação explícita do usuário"))
 		}
 	}
 	if err := s.Validate(); err != nil {
@@ -96,7 +97,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		startStep = 1
 	}
 	if startStep < 1 || startStep > TotalEtapas {
-		return nil, fmt.Errorf("etapa de retomada inválida: %d", startStep)
+		return nil, fmt.Errorf(i18n.T("etapa de retomada inválida: %d"), startStep)
 	}
 
 	logger := cfg.Logger
@@ -116,21 +117,21 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		}
 		s.Status = SessaoEmAndamento
 		if err := cfg.Repo.CreateSessao(ctx, s); err != nil {
-			return nil, fmt.Errorf("criar sessão: %w", err)
+			return nil, fmt.Errorf(i18n.T("criar sessão: %w"), err)
 		}
 	} else {
 		if s.ID == 0 {
-			return nil, errors.New("retomada exige o ID da sessão")
+			return nil, errors.New(i18n.T("retomada exige o ID da sessão"))
 		}
 		stored, getErr := cfg.Repo.ObterSessao(ctx, s.ID)
 		if getErr != nil {
-			return nil, fmt.Errorf("carregar sessão para retomada: %w", getErr)
+			return nil, fmt.Errorf(i18n.T("carregar sessão para retomada: %w"), getErr)
 		}
 		mergeResumeSession(s, stored)
 		s.Status = SessaoEmAndamento
 		if cpRepo, ok := cfg.Repo.(CheckpointRepository); ok {
 			if reopenErr := cpRepo.ReabrirSessao(ctx, s.ID); reopenErr != nil {
-				return nil, fmt.Errorf("reabrir sessão para retomada: %w", reopenErr)
+				return nil, fmt.Errorf(i18n.T("reabrir sessão para retomada: %w"), reopenErr)
 			}
 		}
 	}
@@ -140,7 +141,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 	if startStep == 1 {
 		cp.start(ctx, 1)
 		cp.finish(ctx, 1)
-		registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInfo, "sessão iniciada", map[string]any{
+		registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInfo, i18n.T("sessão iniciada"), map[string]any{
 			"so_destino": s.TargetOS, "versao_destino": s.TargetVersion,
 			"arch_destino": s.TargetArch, "metodo_fetch": s.FetchMethod,
 			"include_optional": s.IncludeOptional, "pacotes": roots,
@@ -148,7 +149,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 	}
 	if binder, ok := cfg.Fetcher.(SessionBinder); ok {
 		if bindErr := binder.BindSession(s.ID); bindErr != nil {
-			return nil, fmt.Errorf("vincular sessão ao fetcher: %w", bindErr)
+			return nil, fmt.Errorf(i18n.T("vincular sessão ao fetcher: %w"), bindErr)
 		}
 	}
 	persistirPacotesSolicitados(ctx, cfg.Repo, s.ID, roots)
@@ -177,7 +178,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		if prepared {
 			if cleanupErr := cfg.Fetcher.Cleanup(bgCtx); cleanupErr != nil {
 				logger.Error("falha no cleanup do ambiente isolado", "erro", cleanupErr)
-				err = errors.Join(err, fmt.Errorf("cleanup do ambiente isolado: %w", cleanupErr))
+				err = errors.Join(err, fmt.Errorf(i18n.T("cleanup do ambiente isolado: %w"), cleanupErr))
 			}
 		}
 		cp.finish(bgCtx, 13)
@@ -190,16 +191,16 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 			status = SessaoFalhou
 		}
 		if finalizeErr := cfg.Repo.FinalizarSessao(bgCtx, s.ID, status, time.Now().UTC()); finalizeErr != nil {
-			err = errors.Join(err, fmt.Errorf("finalizar sessão: %w", finalizeErr))
+			err = errors.Join(err, fmt.Errorf(i18n.T("finalizar sessão: %w"), finalizeErr))
 		}
 		tipo := EventoInfo
-		mensagem := "sessão concluída"
+		mensagem := i18n.T("sessão concluída")
 		if err != nil {
 			tipo = EventoErro
-			mensagem = "sessão falhou: " + err.Error()
+			mensagem = i18n.T("sessão falhou: %s", err.Error())
 		}
 		if aborted {
-			mensagem = "sessão abortada pelo usuário"
+			mensagem = i18n.T("sessão abortada pelo usuário")
 		}
 		registrarEvento(bgCtx, cfg.Repo, cfg.EventSink, logger, s.ID, tipo, mensagem, nil)
 		if err != nil {
@@ -212,7 +213,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		connectErr := connectTransfer(tctx, cfg.Transfer, cfg.SSH, logger)
 		cancel()
 		if connectErr != nil {
-			return nil, fmt.Errorf("conectar SSH ao destino: %w", connectErr)
+			return nil, fmt.Errorf(i18n.T("conectar SSH ao destino: %w"), connectErr)
 		}
 		transferConnected = true
 		defer func() {
@@ -267,7 +268,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		cp.start(ctx, 2)
 		installed, inspectErr := cfg.Inspector.InspectPackages(ctx, roots)
 		if inspectErr != nil {
-			return nil, fmt.Errorf("pré-check remoto: %w", inspectErr)
+			return nil, fmt.Errorf(i18n.T("pré-check remoto: %w"), inspectErr)
 		}
 		alreadyInstalled = installed
 		if !cfg.ForceReinstall {
@@ -276,7 +277,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 					SessaoID: s.ID, Nome: p.Name, Versao: p.Version,
 					Arquitetura: p.Arch, Status: PacoteJaInstalado,
 				}); addErr != nil {
-					return nil, fmt.Errorf("registrar pacote já instalado %q: %w", p.Name, addErr)
+					return nil, fmt.Errorf(i18n.T("registrar pacote já instalado %q: %w"), p.Name, addErr)
 				}
 			}
 		}
@@ -293,7 +294,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 			}
 			roots = filtered
 		}
-		registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoPreCheck, "pré-check remoto concluído", map[string]any{
+		registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoPreCheck, i18n.T("pré-check remoto concluído"), map[string]any{
 			"instalados": len(installed), "roots_restantes": len(roots),
 		})
 		cp.finish(ctx, 2)
@@ -331,12 +332,12 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		prepareErr := cfg.Fetcher.Prepare(pctx, s.TargetOS, s.TargetVersion, s.TargetArch)
 		cancel()
 		if prepareErr != nil {
-			return nil, fmt.Errorf("preparar ambiente isolado: %w", prepareErr)
+			return nil, fmt.Errorf(i18n.T("preparar ambiente isolado: %w"), prepareErr)
 		}
 		prepared = true
 		persistExecution(ctx, cfg, s, outDir, remoteDir, logger)
 		logger.Info("ambiente isolado criado")
-		registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInfo, "ambiente isolado criado", map[string]any{
+		registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInfo, i18n.T("ambiente isolado criado"), map[string]any{
 			"metodo_fetch": s.FetchMethod, "arch": s.TargetArch,
 		})
 		cp.finish(ctx, 3)
@@ -346,10 +347,10 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		downloaded, downloadErr := downloadRoots(dctx, cfg.Fetcher, roots, s.IncludeOptional)
 		cancelDownload()
 		if downloadErr != nil {
-			return nil, fmt.Errorf("baixar pacotes %v: %w", roots, downloadErr)
+			return nil, fmt.Errorf(i18n.T("baixar pacotes %v: %w"), roots, downloadErr)
 		}
 		if len(downloaded) == 0 {
-			return nil, fmt.Errorf("nenhum artefato retornado para %v", roots)
+			return nil, fmt.Errorf(i18n.T("nenhum artefato retornado para %v"), roots)
 		}
 		artifacts = downloaded
 		cp.finish(ctx, 4)
@@ -357,10 +358,10 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		cp.finish(ctx, 5)
 		cp.start(ctx, 6)
 		if clearErr := os.RemoveAll(outDir); clearErr != nil {
-			return nil, fmt.Errorf("limpar saída da sessão para novo download: %w", clearErr)
+			return nil, fmt.Errorf(i18n.T("limpar saída da sessão para novo download: %w"), clearErr)
 		}
 		if persistErr := persistArtifacts(outDir, artifacts); persistErr != nil {
-			return nil, fmt.Errorf("persistir artefatos da sessão: %w", persistErr)
+			return nil, fmt.Errorf(i18n.T("persistir artefatos da sessão: %w"), persistErr)
 		}
 		cp.finish(ctx, 6)
 
@@ -374,7 +375,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 			return nil, regErr
 		}
 		cp.finish(ctx, 7)
-		registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoDownload, "manifesto SHA256SUMS gerado", map[string]any{
+		registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoDownload, i18n.T("manifesto SHA256SUMS gerado"), map[string]any{
 			"manifesto": manifestPath, "output_dir": outDir, "artefatos": len(artifacts),
 		})
 	} else {
@@ -406,9 +407,9 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 			uploadErr := cfg.Transfer.Upload(tctx, files, remoteDir)
 			cancel()
 			if uploadErr != nil {
-				return nil, fmt.Errorf("enviar artefatos via SFTP: %w", uploadErr)
+				return nil, fmt.Errorf(i18n.T("enviar artefatos via SFTP: %w"), uploadErr)
 			}
-			registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoTransferencia, "artefatos enviados via SFTP", map[string]any{
+			registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoTransferencia, i18n.T("artefatos enviados via SFTP"), map[string]any{
 				"remote_dir": remoteDir, "arquivos": len(files),
 			})
 		}
@@ -420,13 +421,13 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 			verifyErr := cfg.Transfer.VerifyChecksums(tctx, path.Join(remoteDir, transfer.NomeManifesto), remoteDir)
 			cancel()
 			if verifyErr != nil {
-				return nil, fmt.Errorf("verificar checksums no destino: %w", verifyErr)
+				return nil, fmt.Errorf(i18n.T("verificar checksums no destino: %w"), verifyErr)
 			}
 		}
 		p3OK := true
 		marcarVerificacoes(ctx, cfg.Repo, s.ID, &p3OK, nil)
 		if statusErr := cfg.Repo.AtualizarPacotesStatus(ctx, s.ID, PacoteBaixado, PacoteEnviado); statusErr != nil {
-			return nil, fmt.Errorf("registrar pacotes como enviados: %w", statusErr)
+			return nil, fmt.Errorf(i18n.T("registrar pacotes como enviados: %w"), statusErr)
 		}
 		cp.finish(ctx, 9)
 	} else {
@@ -439,21 +440,21 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 			cp.start(ctx, 10)
 			if binder, ok := cfg.Installer.(RemoteDirBinder); ok {
 				if bindErr := binder.SetRemoteDir(remoteDir); bindErr != nil {
-					return nil, fmt.Errorf("configurar diretório remoto da instalação: %w", bindErr)
+					return nil, fmt.Errorf(i18n.T("configurar diretório remoto da instalação: %w"), bindErr)
 				}
 			}
 			approved, confirmErr := cfg.ConfirmInstall(ctx, artifacts)
 			if confirmErr != nil {
-				return nil, fmt.Errorf("confirmar instalação: %w", confirmErr)
+				return nil, fmt.Errorf(i18n.T("confirmar instalação: %w"), confirmErr)
 			}
 			if !approved {
 				if statusErr := cfg.Repo.AtualizarPacotesStatus(ctx, s.ID, PacoteEnviado, PacoteEnviadoNaoInstalado); statusErr != nil {
-					return nil, fmt.Errorf("registrar pacotes como enviados não instalados: %w", statusErr)
+					return nil, fmt.Errorf(i18n.T("registrar pacotes como enviados não instalados: %w"), statusErr)
 				}
 				declined = true
 				cp.finish(ctx, 10)
 				cp.skip(ctx, 11)
-				registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInfo, "instalação recusada pelo usuário", map[string]any{
+				registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInfo, i18n.T("instalação recusada pelo usuário"), map[string]any{
 					"remote_dir": remoteDir, "pacotes": len(artifacts),
 				})
 			} else {
@@ -461,7 +462,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 				cp.start(ctx, 11)
 				command, cmdErr := cfg.Installer.InstallCommand(artifacts)
 				if cmdErr != nil {
-					return nil, fmt.Errorf("montar comando de instalação: %w", cmdErr)
+					return nil, fmt.Errorf(i18n.T("montar comando de instalação: %w"), cmdErr)
 				}
 				ictx, cancel := stageContext(ctx, cfg.StageTimeout)
 				installErr := cfg.Installer.Execute(ictx, cfg.Transfer, command)
@@ -469,20 +470,20 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 				if installErr != nil {
 					bg, bgCancel := context.WithTimeout(context.Background(), finalizeTimeout)
 					_ = cfg.Repo.AtualizarPacotesStatus(bg, s.ID, PacoteEnviado, PacoteFalhou)
-					registrarEvento(bg, cfg.Repo, cfg.EventSink, logger, s.ID, EventoErro, "falha na instalação remota", map[string]any{
+					registrarEvento(bg, cfg.Repo, cfg.EventSink, logger, s.ID, EventoErro, i18n.T("falha na instalação remota"), map[string]any{
 						"remote_dir": remoteDir, "pacotes": len(artifacts),
 					})
 					bgCancel()
-					return nil, fmt.Errorf("instalar pacotes no destino: %w", installErr)
+					return nil, fmt.Errorf(i18n.T("instalar pacotes no destino: %w"), installErr)
 				}
 				if statusErr := cfg.Repo.AtualizarPacotesStatus(ctx, s.ID, PacoteEnviado, PacoteInstalado); statusErr != nil {
-					return nil, fmt.Errorf("registrar pacotes como instalados: %w", statusErr)
+					return nil, fmt.Errorf(i18n.T("registrar pacotes como instalados: %w"), statusErr)
 				}
 				instOK := true
 				marcarVerificacoes(ctx, cfg.Repo, s.ID, nil, &instOK)
 				installed = true
 				cp.finish(ctx, 11)
-				registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInstalacao, "pacotes instalados no destino", map[string]any{
+				registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInstalacao, i18n.T("pacotes instalados no destino"), map[string]any{
 					"remote_dir": remoteDir, "pacotes": len(artifacts),
 				})
 			}
@@ -498,7 +499,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 
 	cp.start(ctx, 12)
 	cp.finish(ctx, 12)
-	registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInfo, "resultado registrado", map[string]any{
+	registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInfo, i18n.T("resultado registrado"), map[string]any{
 		"artefatos": len(artifacts), "instalado": installed, "recusado": declined,
 	})
 	logger.Info("pipeline concluído", "artefatos", len(artifacts), "instalado", installed)
@@ -648,14 +649,14 @@ func gerarManifesto(outDir string, artifacts []PackageArtifact) (transfer.Manife
 	}
 	manifest, err := transfer.GerarManifesto(outDir, paths)
 	if err != nil {
-		return transfer.Manifesto{}, fmt.Errorf("gerar manifesto SHA256SUMS: %w", err)
+		return transfer.Manifesto{}, fmt.Errorf(i18n.T("gerar manifesto SHA256SUMS: %w"), err)
 	}
 	verified, err := transfer.VerificarManifesto(manifest.Caminho, outDir)
 	if err != nil {
-		return transfer.Manifesto{}, fmt.Errorf("verificar manifesto SHA256SUMS: %w", err)
+		return transfer.Manifesto{}, fmt.Errorf(i18n.T("verificar manifesto SHA256SUMS: %w"), err)
 	}
 	if len(verified.Arquivos) != len(artifacts) {
-		return transfer.Manifesto{}, fmt.Errorf("manifesto incompleto: %d entradas para %d artefatos", len(verified.Arquivos), len(artifacts))
+		return transfer.Manifesto{}, fmt.Errorf(i18n.T("manifesto incompleto: %d entradas para %d artefatos"), len(verified.Arquivos), len(artifacts))
 	}
 	hashes := make(map[string]string, len(verified.Arquivos))
 	for _, entry := range verified.Arquivos {
@@ -664,7 +665,7 @@ func gerarManifesto(outDir string, artifacts []PackageArtifact) (transfer.Manife
 	for i := range artifacts {
 		hash, ok := hashes[filepath.Base(artifacts[i].LocalPath)]
 		if !ok {
-			return transfer.Manifesto{}, fmt.Errorf("artefato %q ausente do manifesto", artifacts[i].LocalPath)
+			return transfer.Manifesto{}, fmt.Errorf(i18n.T("artefato %q ausente do manifesto"), artifacts[i].LocalPath)
 		}
 		artifacts[i].SHA256 = hash
 		artifacts[i].SHA256P2 = hash
@@ -682,7 +683,7 @@ func registrarPacotes(ctx context.Context, repo Repository, sessaoID int64, arti
 			SHA256: artifact.SHA256, SHA256P1: artifact.SHA256P1, SHA256P2: artifact.SHA256P2,
 			P3Verificado: artifact.P3Verified, InstaladoVerificado: artifact.Installed,
 		}); err != nil {
-			return fmt.Errorf("registrar pacote %q: %w", artifact.Name, err)
+			return fmt.Errorf(i18n.T("registrar pacote %q: %w"), artifact.Name, err)
 		}
 	}
 	return nil
@@ -691,7 +692,7 @@ func registrarPacotes(ctx context.Context, repo Repository, sessaoID int64, arti
 func carregarArtefatosRetomada(ctx context.Context, repo Repository, sessaoID int64, outDir string) ([]PackageArtifact, transfer.Manifesto, error) {
 	pacotes, err := repo.ListarPacotes(ctx, sessaoID)
 	if err != nil {
-		return nil, transfer.Manifesto{}, fmt.Errorf("carregar pacotes da retomada: %w", err)
+		return nil, transfer.Manifesto{}, fmt.Errorf(i18n.T("carregar pacotes da retomada: %w"), err)
 	}
 	artifacts := make([]PackageArtifact, 0, len(pacotes))
 	for _, p := range pacotes {
@@ -709,12 +710,12 @@ func carregarArtefatosRetomada(ctx context.Context, repo Repository, sessaoID in
 		})
 	}
 	if len(artifacts) == 0 {
-		return nil, transfer.Manifesto{}, errors.New("nenhum artefato persistido para retomada")
+		return nil, transfer.Manifesto{}, errors.New(i18n.T("nenhum artefato persistido para retomada"))
 	}
 	manifestPath := filepath.Join(outDir, transfer.NomeManifesto)
 	verified, err := transfer.VerificarManifesto(manifestPath, outDir)
 	if err != nil {
-		return nil, transfer.Manifesto{}, fmt.Errorf("manifesto da retomada inválido: %w", err)
+		return nil, transfer.Manifesto{}, fmt.Errorf(i18n.T("manifesto da retomada inválido: %w"), err)
 	}
 	return artifacts, transfer.Manifesto{Caminho: manifestPath, Arquivos: verified.Arquivos}, nil
 }
@@ -934,30 +935,30 @@ func registrarEvento(ctx context.Context, repo Repository, sink EventSink, logge
 
 func persistArtifacts(dir string, artifacts []PackageArtifact) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("criar diretório de saída: %w", err)
+		return fmt.Errorf(i18n.T("criar diretório de saída: %w"), err)
 	}
 	seen := make(map[string]struct{}, len(artifacts))
 	for i := range artifacts {
 		src := artifacts[i].LocalPath
 		if src == "" {
-			return fmt.Errorf("artefato %q sem caminho local", artifacts[i].Name)
+			return fmt.Errorf(i18n.T("artefato %q sem caminho local"), artifacts[i].Name)
 		}
 		name := filepath.Base(src)
 		if name == "." || name == string(filepath.Separator) || name == "" {
-			return fmt.Errorf("nome de artefato inválido: %q", src)
+			return fmt.Errorf(i18n.T("nome de artefato inválido: %q"), src)
 		}
 		if _, ok := seen[name]; ok {
-			return fmt.Errorf("artefato duplicado: %q", name)
+			return fmt.Errorf(i18n.T("artefato duplicado: %q"), name)
 		}
 		seen[name] = struct{}{}
 		dst := filepath.Join(dir, name)
 		if _, err := os.Stat(dst); err == nil {
-			return fmt.Errorf("artefato já existe no destino: %q", dst)
+			return fmt.Errorf(i18n.T("artefato já existe no destino: %q"), dst)
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("inspecionar destino %q: %w", dst, err)
+			return fmt.Errorf(i18n.T("inspecionar destino %q: %w"), dst, err)
 		}
 		if err := moveFile(src, dst); err != nil {
-			return fmt.Errorf("mover artefato %q: %w", name, err)
+			return fmt.Errorf(i18n.T("mover artefato %q: %w"), name, err)
 		}
 		artifacts[i].LocalPath = dst
 	}

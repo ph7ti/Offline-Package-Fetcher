@@ -1,8 +1,8 @@
 [English](MANUAL.md) | [Português (BR)](MANUAL.pt-BR.md)
 
-# OPF User Manual — v0.1.0
+# OPF User Manual — v0.2.0
 
-**Offline Package Fetcher (OPF) 0.1.0** — download Linux packages and their complete dependency closure for isolated environments, transfer them over SSH/SFTP and install them on the target after explicit confirmation.
+**Offline Package Fetcher (OPF) 0.2.0** — download Linux packages and their complete dependency closure for isolated environments, transfer them over SSH/SFTP and install them on the target after explicit confirmation.
 
 ## Table of contents
 
@@ -30,7 +30,7 @@ Out of scope:
 - configuring package repositories on the target (OPF never writes repository configuration on the destination);
 - distributing arbitrary files (OPF handles package artifacts only);
 - multi-target sessions (one session targets exactly one distribution, version and architecture);
-- repository authentication (not available in 0.1.0).
+- repository authentication (not available in 0.2.0).
 
 ## 2. Core concepts
 
@@ -95,7 +95,7 @@ Docker platform mapping used by the fetcher: `amd64` → `linux/amd64`, `arm64` 
 
 ### 4.1 Release binaries
 
-Release assets are produced by the release workflow from the tagged commit. For v0.1.0 the published set is:
+Release assets are produced by the release workflow from the tagged commit. For v0.2.0 the published set is 12 assets (11 binaries plus the checksum file):
 
 | Asset | Description |
 |:---|:---|
@@ -115,6 +115,36 @@ sha256sum -c SHA256SUMS --ignore-missing
 Get-FileHash .\opf-cli-windows-amd64.exe -Algorithm SHA256   # compare with the published SHA256SUMS
 ```
 
+#### Binary size and compression
+
+Production builds strip build metadata with `-trimpath -ldflags "-s -w -buildid="`. The Linux
+assets are then compressed with UPX `--best --lzma` and verified with `upx -t`; the release
+workflow also runs `opf-cli -h` on the compressed binary as a smoke test. Sizes measured on
+2026-11-21:
+
+| Asset | Uncompressed (bytes) | UPX (bytes) | Reduction |
+|:---|--:|--:|--:|
+| `opf-cli-linux-amd64` | 14,540,924 | 4,548,248 | -68.72% |
+| `opf-tui-linux-amd64` | 15,396,988 | 4,946,584 | -67.87% |
+| `opf-gui-linux-amd64` | 33,762,840 | 12,305,644 | -63.55% |
+| `opf-cli-linux-arm64` | 13,697,148 | 3,941,072 | -71.23% |
+| `opf-tui-linux-arm64` | 14,483,580 | 4,107,204 | -71.64% |
+
+Windows and macOS assets are published uncompressed: endpoint-protection products block
+UPX-packed PE files and UPX cannot pack Mach-O binaries. Their measured sizes are:
+
+| Asset | Size (bytes) |
+|:---|--:|
+| `opf-cli-windows-amd64.exe` | 14,781,440 |
+| `opf-tui-windows-amd64.exe` | 15,679,488 |
+| `opf-cli-darwin-amd64` | 14,627,072 |
+| `opf-cli-darwin-arm64` | 13,807,426 |
+| `opf-tui-darwin-amd64` | 15,492,608 |
+| `opf-tui-darwin-arm64` | 14,634,338 |
+
+`opf-gui` is published only for linux/amd64; the Windows GUI build (34,168,832 bytes) is produced
+by CI but is not a release asset.
+
 ### 4.2 Build from source
 
 Linux/macOS:
@@ -125,17 +155,19 @@ cd Offline-Package-Fetcher
 make build        # bin/opf-cli
 make build-tui    # bin/opf-tui
 make build-gui    # bin/opf-gui (CGO_ENABLED=1 + graphics libraries)
+make compress     # optional (Linux): UPX --best --lzma + upx -t
 ```
 
-Windows PowerShell:
+The make targets use `-trimpath -ldflags "-s -w -buildid="`, the same flags as the release
+workflow. Windows PowerShell:
 
 ```powershell
 New-Item -ItemType Directory -Force bin | Out-Null
 $env:CGO_ENABLED = '0'
-go build -trimpath -ldflags "-s -w" -o bin/opf-cli.exe ./cmd/opf-cli
-go build -trimpath -ldflags "-s -w" -o bin/opf-tui.exe ./cmd/opf-tui
+go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-cli.exe ./cmd/opf-cli
+go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-tui.exe ./cmd/opf-tui
 $env:CGO_ENABLED = '1'   # requires gcc/mingw-w64 in PATH
-go build -trimpath -ldflags "-s -w" -o bin/opf-gui.exe ./cmd/opf-gui
+go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-gui.exe ./cmd/opf-gui
 ```
 
 GUI prerequisites (Fyne v2.8):
@@ -156,7 +188,7 @@ opf-tui           # opens the main menu (Ctrl+C exits)
 opf-gui           # opens the window; without CGO it exits with a guidance message
 ```
 
-`opf-cli -h` ends with `opf-cli: flag: help requested` and exit code 1; this is expected, because Go's standard `flag` package signals help as an error.
+`opf-cli -h` prints the flag reference in the interface language and exits with status 0.
 
 A Docker-backed smoke test (`opf-cli --target ubuntu:22.04 --arch amd64 --pkg vim --out ./opf-output`) validates binary, SQLite, fetcher and manifest end to end and creates `./opf.db`, `./opf-output/sessao-<id>/` and `SHA256SUMS`.
 
@@ -182,6 +214,7 @@ The directory is created with mode `0700` and the file is published atomically w
 | `wsl_distro` | string | empty | default WSL distribution |
 | `include_optional` | bool | `false` | include optional dependencies |
 | `force_reinstall` | bool | `false` | force reinstallation |
+| `language` | string | `auto` | interface language: `auto`, `en`, `pt-BR` or `es` |
 | `syslog_enabled` | bool | `false` | enable Syslog |
 | `syslog_host` | string | empty | collector |
 | `syslog_port` | int | `514` (UI default) | port |
@@ -234,7 +267,7 @@ WSL fetches only APT families (Ubuntu/Debian); RPM and APK require Docker. Run t
 
 ## 6. GUI walkthrough
 
-Start it with `opf-gui` (or `bin/opf-gui`). The window is titled **OPF — Offline Package Fetcher**. Every screen shares a top bar (icon, product name, Home/History/Settings shortcuts, theme toggle) and a status bar (pipeline state, database file, current theme).
+Start it with `opf-gui` (or `bin/opf-gui`). The window is titled **OPF — Offline Package Fetcher**. Every screen shares a top bar (icon, product name, Home/History/Settings shortcuts, theme toggle) and a status bar (pipeline state, database file, current theme). Screen and field labels follow the interface language; this manual quotes the Brazilian Portuguese source labels.
 
 ### 6.1 Início
 
@@ -278,8 +311,9 @@ Every non-archived session as a card with status badge and actions **Relatório*
 | **Diretório temporário** | base for host temporaries during prepare |
 | **Timeout de etapa (segundos)** | default `600` (10 minutes) |
 | **Syslog: Habilitar, Host, Porta, Protocolo, Tag** | asynchronous RFC 5424 delivery (UDP/TCP) |
+| **Idioma da interface** | interface language: **Automático (sistema)**, **English**, **Português (BR)** or **Español**; `auto` follows `OPF_LANG` and then the operating system |
 
-**Salvar configurações** validates the timeout (`> 0`), the port (`1..65535`) and the host when Syslog is enabled, writes `config.json` with mode `0600`, reopens the database and shows a confirmation dialog. Paths and file contents are described in [section 4.4](#44-global-settings-gui-and-tui).
+**Salvar configurações** validates the timeout (`> 0`), the port (`1..65535`), the host when Syslog is enabled and the selected language, writes `config.json` with mode `0600`, reopens the database and shows a confirmation dialog. A language change applies immediately and re-renders the current screen and help texts. Paths and file contents are described in [section 4.4](#44-global-settings-gui-and-tui).
 
 ## 7. TUI walkthrough
 
@@ -314,12 +348,13 @@ Navigation: `↑`/`↓` or `k`/`j`; `Enter` selects; `q` exits. The footer confi
 | **Resultado** | `r` report, `h` history, `n` new session, `esc`/`q` welcome | shows session, artifacts, output, manifest and remote directory |
 | **Relatório da sessão** | `↑`/`↓`, `pgup`/`pgdown`, `J` JSON, `M` Markdown, `S` Syslog, `esc` back | rendered from SQLite, works for old sessions |
 | **Histórico** | `↑`/`↓`, `enter` report, `r` resume, `a` archive, `esc` back | archived sessions are hidden |
-| **Configurações Globais** | `tab`/`↓`, `space` toggle, `ctrl+s` saves, `esc` back | temp dir, timeout, Syslog host/port/protocol/tag |
+| **Configurações Globais** | `tab`/`↓`, `space` toggle, `ctrl+s` saves, `esc` back | temp dir, timeout, interface language, Syslog host/port/protocol/tag |
 
 Notes:
 
 - `ctrl+c` quits at any time and cancels a running pipeline.
 - Toggles are changed with `space`; `enter` advances/saves.
+- **Idioma da interface** is a text field that accepts `auto`, `en`, `pt-BR` or `es` (the aliases `pt` and `pt_BR` are normalized). `auto` follows `OPF_LANG` when set and the operating system otherwise. Saving validates the value, persists it in `config.json` and immediately re-renders the settings screen, form labels and help/status texts in the new language.
 - If the remote user is `root`, the TUI detects it before installing and disables sudo automatically. If the user is not root and sudo is not selected, the run fails with `usuário remoto não é root; habilite "Usar sudo" e informe a senha da conta`.
 - When the pipeline reaches stage 10, the progress screen asks `Instalar N artefatos? [y/n]`.
 
@@ -336,7 +371,7 @@ Validation errors appear in red at the bottom of the screen; `esc` always return
 
 ## 8. CLI reference
 
-`opf-cli` uses Go's standard `flag` package: single-dash and double-dash forms are both accepted (`-target` and `--target`), and flags must precede positional arguments. No positional arguments are accepted (`argumentos inesperados: ...`). All flag help texts and runtime messages are in Brazilian Portuguese in 0.1.0.
+`opf-cli` uses Go's standard `flag` package: single-dash and double-dash forms are both accepted (`-target` and `--target`), and flags must precede positional arguments. No positional arguments are accepted (`argumentos inesperados: ...`). Help texts, runtime messages and errors follow the interface language (see [8.11 Interface language](#811-interface-language)); by default they follow the operating system language. Error messages quoted in this manual are the Brazilian Portuguese source strings.
 
 ### 8.1 Target and output
 
@@ -468,13 +503,15 @@ Delivery is best-effort; SQLite remains the source of truth (see [section 15.3](
 | `--ssh-jump-auth tem N valores para M pontes` | mismatched counts | align the lists |
 | `--sudo exige --ssh-password/OPF_SSH_PASSWORD ...` | sudo without a password | provide the password |
 | `argumentos inesperados: ...` | positional argument | remove the argument |
+| `--lang inválido: "..." (use auto, en, pt-BR ou es)` | unsupported language value | use `auto`, `en`, `pt-BR` or `es` |
+| `--lang exige um valor` | `--lang` without a value | pass one of the supported values |
 
 Errors are printed as `opf-cli: <message>` on stderr. Exit codes:
 
 | Code | Meaning |
 |:---|:---|
-| 0 | session completed (including "installation declined" and "all packages already installed") |
-| 1 | validation error, pipeline failure or `-h` |
+| 0 | session completed (including "installation declined" and "all packages already installed"), or help requested with `-h`/`--help` |
+| 1 | validation error or pipeline failure |
 
 ### 8.10 Standard CLI output
 
@@ -491,6 +528,24 @@ relatório Markdown: <path>           # only with --export-markdown
 instalação: concluída                # only when installation was accepted
 instalação: recusada; pacotes permanecem enviados   # when declined
 ```
+
+### 8.11 Interface language
+
+OPF follows the operating system language by default. English, Brazilian Portuguese (pt-BR) and Spanish (es) are supported; when the OS language is not one of them, the interface starts in English. The CLI flag overrides everything, and `OPF_LANG` overrides OS detection when the flag is `auto` or omitted:
+
+| Flag | Type | Default | Notes |
+|:---|:---|:---|:---|
+| `--lang` | string | `auto` | `auto`, `en`, `pt-BR` or `es`; `-lang` and `--lang` are both accepted |
+
+| Variable | Content |
+|:---|:---|
+| `OPF_LANG` | `auto`, `en`, `pt-BR` or `es`; consulted when `--lang` is `auto` or omitted (it also affects GUI and TUI startup) |
+
+Precedence: `--lang` > `OPF_LANG` > operating system. The aliases `pt` and `pt_br` are accepted case-insensitively; an unsupported `--lang` value is a validation error (`--lang inválido: ...`).
+
+The language applies to flag help/usage, error messages, console progress, pipeline stage names and messages, and Markdown report labels; the GUI and the TUI translate their visible strings as well (see [6. GUI walkthrough](#6-gui-walkthrough) and [7. TUI walkthrough](#7-tui-walkthrough)). `-h`/`--help` prints the localized reference and exits with status 0.
+
+Limitation in 0.2.0: low-level diagnostics remain in Brazilian Portuguese regardless of the selected language. This covers package-manager and isolated-environment output (apt/dpkg, dnf/yum/rpm, apk, Docker/WSL tooling), error causes emitted by the fetch, transfer, install, resolve, inspect, storage, config and app layers, and some internal log (slog) lines.
 
 ## 9. Remote target detection
 
@@ -659,7 +714,7 @@ The WSL fetcher removes its repository files during cleanup; Docker containers a
 
 - Use `--repo-key`/`--repo-key-url` with a key you trust; `insecure_skip_gpg_check` and `insecure_skip_tls_verify` exist for controlled labs only and are logged as warnings.
 - An `http://` repository disables transport encryption; GPG signing remains mandatory unless explicitly skipped.
-- There is no repository authentication in 0.1.0: URLs with `user:password@` are rejected. Publish the repository on a network reachable by the Docker environment or use a mirror without credentials.
+- There is no repository authentication in 0.2.0: URLs with `user:password@` are rejected. Publish the repository on a network reachable by the Docker environment or use a mirror without credentials.
 - Repository configuration is session-scoped; nothing is installed or persisted on the target, and SHA-256 verification still applies at all three points.
 
 ## 12. SSH: authentication, known_hosts, jump hosts and sudo
@@ -748,7 +803,7 @@ On cancellation or failure OPF removes the remote directory, but only when it st
 
 ### 13.1 Stages
 
-The pipeline names are stored in Portuguese and shown by the GUI/TUI; the table below translates them and lists the exact behavior.
+The pipeline stage names follow the interface language and are shown by the GUI/TUI; the table below lists the Brazilian Portuguese source names and the exact behavior. The label recorded in `etapas_sessao` is the one active when the stage ran, while the GUI/TUI re-render live labels in the current language.
 
 | # | Stage (stored name) | What happens | Skipped when |
 |:--:|:---|:---|:---|
@@ -787,7 +842,7 @@ An abort does not invalidate artifacts that were already validated, but the sess
 
 Checkpoint state is stored in `etapas_sessao` (`pendente`, `em_andamento`, `concluida`, `falhou`, `pulada`) and the current stage in `sessoes.etapa_atual`.
 
-Resume is available **only in the GUI and the TUI** (**Continuar**, **Retomar**, `r` in history); the CLI has no resume flag in 0.1.0. The planner picks the safe stage:
+Resume is available **only in the GUI and the TUI** (**Continuar**, **Retomar**, `r` in history); the CLI has no resume flag in 0.2.0. The planner picks the safe stage:
 
 | Stored state | Resume from |
 |:---|:---|
@@ -898,9 +953,9 @@ ORDER BY eh_dependencia, nome;
 
 ### 15.2 Markdown report
 
-`--export-markdown <path>` renders the same data as Markdown with the sections `Relatório da Sessão #<id>`, `Host remoto`, `Destino e armazenamento`, `Pacotes solicitados`, `Pacotes` and `Eventos`. Section labels and the closing note (`Exportação gerada localmente. Nenhum segredo é incluído.`) are in Portuguese in 0.1.0.
+`--export-markdown <path>` renders the same data as Markdown with the sections `Relatório da Sessão #<id>`, `Host remoto`, `Destino e armazenamento`, `Pacotes solicitados`, `Pacotes` and `Eventos`. Section labels and the closing note (`Exportação gerada localmente. Nenhum segredo é incluído.`) are translated with the interface language; the names above are the Brazilian Portuguese source strings.
 
-The GUI report screen shows this Markdown, and both the GUI and the TUI write exports to the configured output directory as `opf-relatorio-<id>.json` / `.md`. Reports are produced from SQLite on demand: the GUI/TUI can render and export any historical session, while the CLI `--export-json` / `--export-markdown` flags export the session it just executed (the CLI has no resume or report-only command in 0.1.0).
+The GUI report screen shows this Markdown, and both the GUI and the TUI write exports to the configured output directory as `opf-relatorio-<id>.json` / `.md`. Reports are produced from SQLite on demand: the GUI/TUI can render and export any historical session, while the CLI `--export-json` / `--export-markdown` flags export the session it just executed (the CLI has no resume or report-only command in 0.2.0). Reports are rendered in the interface language active at export time; event messages stored in SQLite keep the language they were recorded in, and JSON keys, role values (`principal`/`dependente`) and status codes are never translated.
 
 ### 15.3 External Syslog
 
@@ -971,13 +1026,13 @@ Diagnostic checklist when a session fails:
 
 **Can I run OPF fully air-gapped?** The OPF host must reach the package repositories (and image registries) once. After the artifacts are on the target, installation uses only local files. If `dpkg` fails and `apt-get install -f` runs, it may try the network; a complete dependency closure avoids that.
 
-**Why are messages in Portuguese?** In 0.1.0 the CLI/TUI/GUI texts and report labels are pt-BR. Documentation is bilingual (EN default, PT-BR linked).
+**Why are messages in Portuguese?** Brazilian Portuguese (pt-BR) is the source language of the interface strings. The interface follows the operating system language by default and starts in English when the OS language is not English, pt-BR or Spanish; override it with `--lang auto|en|pt-BR|es` or `OPF_LANG` (see [8.11 Interface language](#811-interface-language)). Low-level package-manager and environment diagnostics remain in pt-BR in 0.2.0. Documentation is bilingual (EN default, PT-BR linked).
 
 **Can I download for a different architecture?** Yes, set `--arch`. Docker runs the matching platform; the resolver downloads for that architecture.
 
 **Can I install without SSH?** No. Installation requires SSH plus explicit confirmation; without SSH OPF only downloads and verifies.
 
-**Can I resume a CLI session?** Not in 0.1.0. Resume is a GUI/TUI feature; the CLI always starts a new session.
+**Can I resume a CLI session?** Not in 0.2.0. Resume is a GUI/TUI feature; the CLI always starts a new session.
 
 **Are jump-host passwords stored?** No. They live in memory for the run and must be re-entered when resuming.
 
@@ -1005,6 +1060,6 @@ Diagnostic checklist when a session fails:
 
 ## 20. Version and license
 
-This manual documents **Offline Package Fetcher 0.1.0**. OPF is distributed under the **GNU General Public License v3.0**; see [LICENSE](../LICENSE) for the full text. The project was developed with heavy AI assistance, as disclosed in the [README](../README.md#ai-assisted-development).
+This manual documents **Offline Package Fetcher 0.2.0**. OPF is distributed under the **GNU General Public License v3.0**; see [LICENSE](../LICENSE) for the full text. The project was developed with heavy AI assistance, as disclosed in the [README](../README.md#ai-assisted-development).
 
 Related documents: [README (EN)](../README.md) · [README (PT-BR)](README.pt-BR.md) · [Manual (PT-BR)](MANUAL.pt-BR.md) · [Security (EN)](SECURITY.md) · [Security (PT-BR)](SECURITY.pt-BR.md) · [Technical document (PT-BR)](project-description.pt-BR.md) · [GUI/TUI specification (PT-BR)](specs/gui-tui.pt-BR.md) · [Changelog](../CHANGELOG.md)

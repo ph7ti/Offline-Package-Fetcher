@@ -18,18 +18,20 @@ import (
 	opfapp "opf/internal/app"
 	"opf/internal/config"
 	"opf/internal/core"
+	"opf/internal/i18n"
 	"opf/internal/store"
 )
 
 type UI struct {
-	fyneApp      fyne.App
-	window       fyne.Window
-	store        *store.Store
-	settings     config.Settings
-	settingsPath string
-	settingsErr  error
-	themeMode    string
-	screenTitle  string
+	fyneApp        fyne.App
+	window         fyne.Window
+	store          *store.Store
+	settings       config.Settings
+	settingsPath   string
+	settingsErr    error
+	themeMode      string
+	screenTitle    string
+	languageSelect *widget.Select
 
 	running         bool
 	cancel          context.CancelFunc
@@ -94,6 +96,7 @@ type UI struct {
 }
 
 func Run() error {
+	initFyneTranslations()
 	a := app.NewWithID("io.opf.gui")
 	themeMode := a.Preferences().StringWithFallback("theme", "system")
 	applyThemeMode(a, themeMode)
@@ -122,6 +125,7 @@ func newUI(a fyne.App, window fyne.Window) *UI {
 	if settingsErr != nil {
 		settings = config.Default()
 	}
+	i18n.SetFromSetting(settings.Language)
 
 	ui := &UI{
 		fyneApp:      a,
@@ -131,6 +135,7 @@ func newUI(a fyne.App, window fyne.Window) *UI {
 		settingsErr:  settingsErr,
 		themeMode:    a.Preferences().StringWithFallback("theme", "system"),
 	}
+	ui.syncLanguageSelect()
 
 	ui.targetSelect = widget.NewSelect([]string{"Ubuntu", "Debian", "CentOS", "Rocky Linux", "AlmaLinux", "Fedora", "RHEL", "Alpine"}, func(selected string) {
 		if ui.versionEntry == nil || ui.archEntry == nil {
@@ -163,44 +168,46 @@ func newUI(a fyne.App, window fyne.Window) *UI {
 			ui.refreshRepoList()
 		}
 	})
+	ui.targetSelect.PlaceHolder = i18n.T("Selecione uma distribuição")
 	ui.targetSelect.SetSelected("Ubuntu")
 	ui.versionEntry = widget.NewEntry()
 	ui.versionEntry.SetText("22.04")
 	ui.archEntry = widget.NewEntry()
 	ui.archEntry.SetText("amd64")
-	ui.methodSelect = widget.NewSelect([]string{"Docker", "WSL", "Automático"}, nil)
+	ui.methodSelect = widget.NewSelect(methodOptions(), nil)
+	ui.methodSelect.PlaceHolder = i18n.T("Selecione um método")
 	ui.methodSelect.SetSelected("Docker")
 	ui.imageEntry = widget.NewEntry()
-	ui.imageEntry.SetPlaceHolder("opcional: opf/centos-7:f3")
+	ui.imageEntry.SetPlaceHolder(i18n.T("opcional: opf/centos-7:f3"))
 	ui.wslEntry = widget.NewEntry()
-	ui.wslEntry.SetPlaceHolder("ex.: ubuntu-24.04")
-	ui.optionalCheck = widget.NewCheck("Incluir dependências opcionais", nil)
-	ui.forceCheck = widget.NewCheck("Forçar reinstalação (ignorar pré-check)", nil)
+	ui.wslEntry.SetPlaceHolder(i18n.T("ex.: ubuntu-24.04"))
+	ui.optionalCheck = widget.NewCheck(i18n.T("Incluir dependências opcionais"), nil)
+	ui.forceCheck = widget.NewCheck(i18n.T("Forçar reinstalação (ignorar pré-check)"), nil)
 	ui.pkgEntry = widget.NewMultiLineEntry()
-	ui.pkgEntry.SetPlaceHolder("Um pacote por linha ou separado por vírgula. Ex.: vim, curl")
+	ui.pkgEntry.SetPlaceHolder(i18n.T("Um pacote por linha ou separado por vírgula. Ex.: vim, curl"))
 	ui.pkgEntry.SetMinRowsVisible(4)
 
-	ui.sshEnabled = widget.NewCheck("Enviar e instalar via SSH", nil)
+	ui.sshEnabled = widget.NewCheck(i18n.T("Enviar e instalar via SSH"), nil)
 	ui.sshHost = widget.NewEntry()
-	ui.sshHost.SetPlaceHolder("host ou IP do destino")
+	ui.sshHost.SetPlaceHolder(i18n.T("host ou IP do destino"))
 	ui.sshPort = widget.NewEntry()
 	ui.sshPort.SetText("22")
 	ui.sshUser = widget.NewEntry()
-	ui.sshUser.SetPlaceHolder("usuário")
+	ui.sshUser.SetPlaceHolder(i18n.T("usuário"))
 	ui.sshKey = widget.NewEntry()
-	ui.sshKey.SetPlaceHolder("~/.ssh/id_ed25519 (opcional)")
+	ui.sshKey.SetPlaceHolder(i18n.T("~/.ssh/id_ed25519 (opcional)"))
 	ui.sshPassword = widget.NewPasswordEntry()
-	ui.sshPassword.SetPlaceHolder("senha SSH/conta (também usada pelo sudo)")
-	ui.skipHostKey = widget.NewCheck("Ignorar verificação de host key (inseguro)", nil)
+	ui.sshPassword.SetPlaceHolder(i18n.T("senha SSH/conta (também usada pelo sudo)"))
+	ui.skipHostKey = widget.NewCheck(i18n.T("Ignorar verificação de host key (inseguro)"), nil)
 	ui.knownHosts = widget.NewEntry()
 	ui.knownHosts.SetPlaceHolder("~/.ssh/known_hosts")
 	ui.remoteDir = widget.NewEntry()
-	ui.remoteDir.SetPlaceHolder("/tmp/opf-sessao (padrão)")
+	ui.remoteDir.SetPlaceHolder(i18n.T("/tmp/opf-sessao (padrão)"))
 
-	ui.installCheck = widget.NewCheck("Instalar após transferir e validar", nil)
-	ui.sudoCheck = widget.NewCheck("Usar sudo com a senha da conta", nil)
+	ui.installCheck = widget.NewCheck(i18n.T("Instalar após transferir e validar"), nil)
+	ui.sudoCheck = widget.NewCheck(i18n.T("Usar sudo com a senha da conta"), nil)
 	ui.sudoPassword = widget.NewPasswordEntry()
-	ui.sudoPassword.SetPlaceHolder("senha da conta para sudo")
+	ui.sudoPassword.SetPlaceHolder(i18n.T("senha da conta para sudo"))
 
 	cwd, _ := os.Getwd()
 	ui.outEntry = widget.NewEntry()
@@ -216,7 +223,7 @@ func newUI(a fyne.App, window fyne.Window) *UI {
 	ui.settingsTemp.SetText(settings.TempDir)
 	ui.settingsTimeout = widget.NewEntry()
 	ui.settingsTimeout.SetText(strconv.Itoa(settings.StageTimeoutSecs))
-	ui.syslogCheck = widget.NewCheck("Habilitar envio ao Syslog externo", nil)
+	ui.syslogCheck = widget.NewCheck(i18n.T("Habilitar envio ao Syslog externo"), nil)
 	ui.syslogCheck.SetChecked(settings.SyslogEnabled)
 	ui.syslogHost = widget.NewEntry()
 	ui.syslogHost.SetText(settings.SyslogHost)
@@ -240,12 +247,12 @@ func newUI(a fyne.App, window fyne.Window) *UI {
 	ui.syslogTag.SetText(tag)
 
 	ui.progressBar = widget.NewProgressBar()
-	ui.progressText = widget.NewLabel("Aguardando início")
+	ui.progressText = widget.NewLabel(i18n.T("Aguardando início"))
 	ui.progressText.Wrapping = fyne.TextWrapWord
 	ui.logLabel = widget.NewLabel("")
 	ui.logLabel.Wrapping = fyne.TextWrapWord
-	ui.testStatus = widget.NewLabel("Teste de conexão: não executado")
-	ui.detectStatus = widget.NewLabel("Destino não detectado")
+	ui.testStatus = widget.NewLabel(i18n.T("Teste de conexão: não executado"))
+	ui.detectStatus = widget.NewLabel(i18n.T("Destino não detectado"))
 
 	ui.reporter = &guiReporter{ui: ui}
 	ui.openStore()
@@ -263,7 +270,7 @@ func (u *UI) openStore() {
 	}
 	st, err := store.Open(path)
 	if err != nil {
-		u.settingsErr = fmt.Errorf("abrir SQLite %q: %w", path, err)
+		u.settingsErr = fmt.Errorf("%s: %w", i18n.T("abrir SQLite %q", path), err)
 		return
 	}
 	u.store = st
@@ -303,14 +310,44 @@ func (u *UI) targetFamily() (string, error) {
 }
 
 func (u *UI) fetchMethod() string {
-	switch u.methodSelect.Selected {
+	return methodMode(u.methodSelect.Selected)
+}
+
+// methodOptions returns the fetch-method labels in the active interface
+// language. Docker and WSL are product names and stay unchanged.
+func methodOptions() []string {
+	return []string{"Docker", "WSL", i18n.T("Automático")}
+}
+
+func methodLabel(mode string) string {
+	switch mode {
+	case "wsl":
+		return "WSL"
+	case "auto":
+		return i18n.T("Automático")
+	default:
+		return "Docker"
+	}
+}
+
+func methodMode(selected string) string {
+	switch selected {
 	case "WSL":
 		return "wsl"
-	case "Automático":
+	case "Automático", "Automatic", i18n.T("Automático"):
 		return "auto"
 	default:
 		return "docker"
 	}
+}
+
+// refreshMethodSelect rebuilds the method options in the active language while
+// keeping the previously selected mode.
+func (u *UI) refreshMethodSelect() {
+	mode := methodMode(u.methodSelect.Selected)
+	u.methodSelect.Options = methodOptions()
+	u.methodSelect.SetSelected(methodLabel(mode))
+	u.methodSelect.Refresh()
 }
 
 func (u *UI) packages() []string {
@@ -386,11 +423,11 @@ func (u *UI) currentSudoPassword() string {
 }
 
 func (u *UI) statusText() string {
-	db := "SQLite: OK"
+	db := i18n.T("SQLite: OK")
 	if u.store == nil {
-		db = "SQLite: indisponível"
+		db = i18n.T("SQLite: indisponível")
 	}
-	text := db + "  •  Docker: verificado ao iniciar  •  WSL: disponível apenas no Windows"
+	text := fmt.Sprintf("%s  •  %s  •  %s", db, i18n.T("Docker: verificado ao iniciar"), i18n.T("WSL: disponível apenas no Windows"))
 	if u.settingsErr != nil {
 		text += "\n" + u.settingsErr.Error()
 	}

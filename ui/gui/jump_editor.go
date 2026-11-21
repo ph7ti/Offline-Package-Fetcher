@@ -14,9 +14,20 @@ import (
 
 	opfapp "opf/internal/app"
 	"opf/internal/core"
+	"opf/internal/i18n"
 )
 
+// jumpAuthLabels holds the Portuguese source labels used as internal values.
+// jumpAuthOptions renders the translated labels shown to the user.
 var jumpAuthLabels = []string{"Senha", "Chave", "Chave + senha"}
+
+func jumpAuthOptions() []string {
+	return []string{
+		i18n.T("Senha"),
+		i18n.T("Chave"),
+		i18n.T("Chave + senha"),
+	}
+}
 
 type jumpRow struct {
 	host       *widget.Entry
@@ -33,19 +44,20 @@ func newJumpRow() *jumpRow {
 		host:       widget.NewEntry(),
 		port:       widget.NewEntry(),
 		user:       widget.NewEntry(),
-		auth:       widget.NewSelect(jumpAuthLabels, nil),
+		auth:       widget.NewSelect(jumpAuthOptions(), nil),
 		password:   widget.NewPasswordEntry(),
 		keyPath:    widget.NewEntry(),
 		knownHosts: widget.NewEntry(),
 	}
-	row.host.SetPlaceHolder("host ou IP da ponte")
+	row.auth.PlaceHolder = i18n.T("Selecione o tipo de autenticação")
+	row.host.SetPlaceHolder(i18n.T("host ou IP da ponte"))
 	row.port.SetText("22")
-	row.user.SetPlaceHolder("usuário da ponte")
-	row.password.SetPlaceHolder("senha da ponte (somente em memória)")
+	row.user.SetPlaceHolder(i18n.T("usuário da ponte"))
+	row.password.SetPlaceHolder(i18n.T("senha da ponte (somente em memória)"))
 	row.keyPath.SetPlaceHolder("~/.ssh/id_ed25519")
-	row.knownHosts.SetPlaceHolder("vazio herda o known_hosts do destino")
+	row.knownHosts.SetPlaceHolder(i18n.T("vazio herda o known_hosts do destino"))
 	row.auth.OnChanged = func(string) { row.syncAuth() }
-	row.auth.SetSelected(jumpAuthLabels[0])
+	row.auth.SetSelected(jumpAuthLabel(opfapp.SSHJumpAuthPassword))
 	row.syncAuth()
 	return row
 }
@@ -56,6 +68,15 @@ func (r *jumpRow) authMode() string {
 		return strings.ToLower(strings.TrimSpace(r.auth.Selected))
 	}
 	return mode
+}
+
+// refreshAuthOptions rebuilds the authentication labels in the active language
+// while keeping the selected mode.
+func (r *jumpRow) refreshAuthOptions() {
+	mode := r.authMode()
+	r.auth.Options = jumpAuthOptions()
+	r.auth.SetSelected(jumpAuthLabel(mode))
+	r.auth.Refresh()
 }
 
 func (r *jumpRow) syncAuth() {
@@ -114,26 +135,27 @@ func (r *jumpRow) setMetadata(meta opfapp.SSHJumpMetadata) {
 func jumpAuthLabel(mode string) string {
 	switch mode {
 	case opfapp.SSHJumpAuthKey:
-		return "Chave"
+		return i18n.T("Chave")
 	case opfapp.SSHJumpAuthKeyPassword:
-		return "Chave + senha"
+		return i18n.T("Chave + senha")
 	case "", opfapp.SSHJumpAuthPassword:
-		return "Senha"
+		return i18n.T("Senha")
 	default:
-		return "Senha"
+		return i18n.T("Senha")
 	}
 }
 
 func jumpAuthMode(label string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(label)) {
-	case "senha", "password":
+	case "senha", "password", "contraseña", strings.ToLower(i18n.T("Senha")):
 		return opfapp.SSHJumpAuthPassword, nil
-	case "chave", "key":
+	case "chave", "key", "clave", strings.ToLower(i18n.T("Chave")):
 		return opfapp.SSHJumpAuthKey, nil
-	case "chave + senha", "chave+senha", "chave e senha", "key+password":
+	case "chave + senha", "chave+senha", "chave e senha", "key + password", "key+password",
+		"clave + contraseña", "clave+contraseña", "clave y contraseña", strings.ToLower(i18n.T("Chave + senha")):
 		return opfapp.SSHJumpAuthKeyPassword, nil
 	default:
-		return "", fmt.Errorf("modo de autenticação inválido: %q", label)
+		return "", fmt.Errorf("%s: %q", i18n.T("modo de autenticação inválido"), label)
 	}
 }
 
@@ -203,9 +225,10 @@ func (u *UI) refreshJumpList() {
 	}
 	objects := make([]fyne.CanvasObject, 0, len(u.jumpRows)+1)
 	if len(u.jumpRows) == 0 {
-		objects = append(objects, u.banner("Nenhuma ponte SSH. A conexão vai direto ao destino.", toneInfo))
+		objects = append(objects, u.banner(i18n.T("Nenhuma ponte SSH. A conexão vai direto ao destino."), toneInfo))
 	} else {
 		for i, row := range u.jumpRows {
+			row.refreshAuthOptions()
 			if i > 0 {
 				objects = append(objects, vSpace(10))
 			}
@@ -217,9 +240,9 @@ func (u *UI) refreshJumpList() {
 }
 
 func (u *UI) jumpRowCard(row *jumpRow, index, total int) fyne.CanvasObject {
-	up := u.ghostButton("Subir", theme.MoveUpIcon(), func() { u.moveJumpRow(index, -1) })
-	down := u.ghostButton("Descer", theme.MoveDownIcon(), func() { u.moveJumpRow(index, 1) })
-	remove := u.ghostButton("Remover", theme.DeleteIcon(), func() { u.removeJumpRow(index) })
+	up := u.ghostButton(i18n.T("Subir"), theme.MoveUpIcon(), func() { u.moveJumpRow(index, -1) })
+	down := u.ghostButton(i18n.T("Descer"), theme.MoveDownIcon(), func() { u.moveJumpRow(index, 1) })
+	remove := u.ghostButton(i18n.T("Remover"), theme.DeleteIcon(), func() { u.removeJumpRow(index) })
 	if index == 0 {
 		up.Disable()
 	}
@@ -227,7 +250,7 @@ func (u *UI) jumpRowCard(row *jumpRow, index, total int) fyne.CanvasObject {
 		down.Disable()
 	}
 	header := container.NewHBox(
-		textLine(fmt.Sprintf("Ponte %d", index+1), 13, true, theme.Color(theme.ColorNameForeground)),
+		textLine(i18n.T("Ponte %d", index+1), 13, true, theme.Color(theme.ColorNameForeground)),
 		layout.NewSpacer(),
 		up,
 		down,
@@ -235,14 +258,14 @@ func (u *UI) jumpRowCard(row *jumpRow, index, total int) fyne.CanvasObject {
 	)
 	form := widget.NewForm(
 		widget.NewFormItem("Host", row.host),
-		widget.NewFormItem("Porta", row.port),
-		widget.NewFormItem("Usuário", row.user),
-		widget.NewFormItem("Autenticação", row.auth),
-		widget.NewFormItem("Senha", row.password),
-		widget.NewFormItem("Chave privada", row.keyPath),
+		widget.NewFormItem(i18n.T("Porta"), row.port),
+		widget.NewFormItem(i18n.T("Usuário"), row.user),
+		widget.NewFormItem(i18n.T("Autenticação"), row.auth),
+		widget.NewFormItem(i18n.T("Senha"), row.password),
+		widget.NewFormItem(i18n.T("Chave privada"), row.keyPath),
 		widget.NewFormItem("Known hosts", row.knownHosts),
 	)
-	note := u.muted("Credenciais da ponte não são herdadas do destino nem persistidas.", theme.SizeNameCaptionText)
+	note := u.muted(i18n.T("Credenciais da ponte não são herdadas do destino nem persistidas."), theme.SizeNameCaptionText)
 	return u.cardShell(theme.Color(colorCardBackground), theme.Color(colorBorder), 1, container.NewVBox(
 		header,
 		vSpace(6),

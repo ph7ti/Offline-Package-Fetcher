@@ -8,7 +8,16 @@ import (
 	"testing"
 
 	"opf/internal/core"
+	"opf/internal/i18n"
 )
+
+// TestMain pins the CLI tests to Brazilian Portuguese, the source language of
+// the interface, so assertions on user-visible output stay stable regardless
+// of the host locale.
+func TestMain(m *testing.M) {
+	i18n.Set(i18n.PTBR)
+	os.Exit(m.Run())
+}
 
 type errorReader struct{}
 
@@ -388,5 +397,54 @@ func TestResolveRepositoriesFromJSON(t *testing.T) {
 	}
 	if len(repos) != 1 || repos[0].Family != core.RepositoryFamilyRPM {
 		t.Fatalf("repos = %+v", repos)
+	}
+}
+
+func TestApplyLanguageFlag(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		env     string
+		want    i18n.Language
+		wantErr bool
+	}{
+		{name: "sem flag segue OPF_LANG", env: "pt-BR", want: i18n.PTBR},
+		{name: "flag en vence OPF_LANG", args: []string{"-lang", "en"}, env: "pt-BR", want: i18n.EN},
+		{name: "flag es inline", args: []string{"-lang=es"}, env: "pt-BR", want: i18n.ES},
+		{name: "flag auto segue OPF_LANG", args: []string{"--lang", "auto"}, env: "es", want: i18n.ES},
+		{name: "flag dupla em português", args: []string{"--lang", "pt-BR"}, env: "en", want: i18n.PTBR},
+		{name: "última ocorrência vence", args: []string{"-lang", "en", "-lang", "es"}, env: "pt-BR", want: i18n.ES},
+		{name: "flag antes de outras flags", args: []string{"-pkg", "curl", "-lang", "en"}, env: "pt-BR", want: i18n.EN},
+		{name: "valor inválido cai no fallback", args: []string{"-lang", "xx"}, env: "pt-BR", want: i18n.PTBR, wantErr: true},
+		{name: "flag sem valor", args: []string{"-lang"}, env: "pt-BR", want: i18n.PTBR, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("OPF_LANG", tt.env)
+			t.Cleanup(func() { i18n.Set(i18n.PTBR) })
+			err := applyLanguageFlag(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("esperava erro de --lang")
+				}
+				if !strings.Contains(err.Error(), "--lang") {
+					t.Fatalf("erro = %q, esperava mencionar --lang", err)
+				}
+			} else if err != nil {
+				t.Fatalf("applyLanguageFlag: %v", err)
+			}
+			if got := i18n.Current(); got != tt.want {
+				t.Fatalf("idioma = %q, esperava %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyLanguageFlagInvalidUsesFallbackLanguage(t *testing.T) {
+	t.Setenv("OPF_LANG", "es")
+	t.Cleanup(func() { i18n.Set(i18n.PTBR) })
+	err := applyLanguageFlag([]string{"-lang", "xx"})
+	if err == nil || !strings.Contains(err.Error(), "--lang no válido") {
+		t.Fatalf("erro = %v, esperava mensagem em espanhol", err)
 	}
 }

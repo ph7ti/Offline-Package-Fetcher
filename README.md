@@ -13,7 +13,7 @@
 
 **Download Linux packages and their complete dependency closure for isolated environments — and, when it makes sense, ship them over SSH/SFTP and install them on the target.**
 
-Version **0.1.0** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
+Version **0.2.0** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
 
 ---
 
@@ -65,6 +65,7 @@ A session in short:
 - **Additional repositories** (APT/RPM/APK) used only inside the isolated environment, with GPG/TLS verified by default.
 - **JSON and Markdown reports** per session, plus optional external **Syslog** (UDP/TCP, RFC 5424).
 - **Local history** in SQLite (sessions, packages, events, stages and requested packages) with logical archiving.
+- **Interface language follows the operating system** (English when the OS language is unsupported), with English, Brazilian Portuguese and Spanish available; select it in **Configurações Globais** (GUI and TUI) or use `--lang`/`OPF_LANG` in the CLI.
 
 ## Supported targets
 
@@ -83,13 +84,14 @@ Fetch methods:
 
 Recognized architectures: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` and `i386`/`i686` (normalized per family: `amd64` for APT, `x86_64` for RPM, and so on).
 
-Known limits in v0.1.0:
+Known limits in v0.2.0:
 
 - **macOS** is a secondary platform and requires Docker to download packages.
 - **WSL** covers Ubuntu/Debian (APT) only; RPM/APK families require Docker.
 - **Remote installation** requires SSH, explicit confirmation and, when the user is not `root`, the account password for `sudo`.
 - **The GUI** does not build with `CGO_ENABLED=0` (the resulting binary is only a stub that exits with an error).
 - **Additional repositories** do not accept authentication (user/password) in this version.
+- **Interface language:** low-level diagnostics remain in Brazilian Portuguese even when another language is selected: package-manager and isolated-environment output (apt/dpkg, dnf/yum/rpm, apk, Docker/WSL tooling), error causes from the fetch/transfer/install/storage layers, and some internal log lines.
 - **Integration tests** depend on the `integration` build tag and on Docker (plus WSL for the Windows-specific tests).
 
 ## Architecture
@@ -136,8 +138,8 @@ The core depends only on interfaces (`PackageFetcher`, `DependencyResolver`, `Tr
 
 ### A. Release binaries
 
-1. Open [the v0.1.0 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.1.0).
-2. Download the asset for your platform and the `SHA256SUMS` file published next to it. The release workflow publishes `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe`, `opf-cli-darwin-amd64`, `opf-cli-darwin-arm64`, the same five variants for `opf-tui`, and `opf-gui-linux-amd64`.
+1. Open [the v0.2.0 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.0).
+2. Download the asset for your platform and the `SHA256SUMS` file published next to it. Each release publishes 12 assets: `opf-cli-linux-amd64`, `opf-cli-linux-arm64`, `opf-cli-windows-amd64.exe`, `opf-cli-darwin-amd64`, `opf-cli-darwin-arm64`, the same five variants for `opf-tui`, `opf-gui-linux-amd64` and `SHA256SUMS`.
 3. Verify the download:
 
 ```bash
@@ -154,6 +156,8 @@ if ((Get-FileHash .\opf-cli-windows-amd64.exe -Algorithm SHA256).Hash -ne $expec
 
 The `opf-cli` and `opf-tui` binaries are static (`CGO_ENABLED=0`). `opf-gui` depends on the machine graphics libraries and is therefore built with `CGO_ENABLED=1` (`make build-gui`).
 
+The Linux assets are stripped with `-trimpath -ldflags "-s -w -buildid="` and then compressed with UPX (`--best --lzma`), which cuts their size by 63–72%: CLI 14.5 MB → 4.5 MB, TUI 15.4 MB → 4.9 MB and GUI 33.8 MB → 12.3 MB on linux/amd64. The Windows and macOS assets are published uncompressed because endpoint-protection products block UPX-packed PE files and UPX cannot pack Mach-O binaries.
+
 ### B. Build from source (Linux and macOS)
 
 ```bash
@@ -169,14 +173,16 @@ make build-tui      # bin/opf-tui
 make build-linux    # bin/opf-cli-linux-amd64
 ```
 
+The make targets use the production flags `-trimpath -ldflags "-s -w -buildid="`, so local builds match the published binaries in this respect. On Linux, `make compress` optionally UPX-packs the binaries with `--best --lzma` and verifies each one with `upx -t`; Windows and macOS binaries are left uncompressed by design.
+
 ### C. Build on Windows (PowerShell)
 
 ```powershell
 # Go 1.27.4 must be installed and available on PATH (go version => go1.27.4)
 New-Item -ItemType Directory -Force bin | Out-Null
 $env:CGO_ENABLED = '0'
-go build -trimpath -ldflags "-s -w" -o bin/opf-cli.exe ./cmd/opf-cli
-go build -trimpath -ldflags "-s -w" -o bin/opf-tui.exe ./cmd/opf-tui
+go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-cli.exe ./cmd/opf-cli
+go build -trimpath -ldflags "-s -w -buildid=" -o bin/opf-tui.exe ./cmd/opf-tui
 ```
 
 ### D. GUI (Fyne)
@@ -200,11 +206,11 @@ Without CGO, `opf-gui` only compiles a stub that exits with `opf-gui requer CGO_
 ./bin/opf-tui           # opens the interactive terminal UI
 ```
 
-`-h` exits with status 1 because Go's `flag` package reports `flag: help requested`; that is expected.
+`-h`/`--help` prints the flag reference in the interface language and exits with status 0.
 
 ## Quick start
 
-Every example uses `opf-cli`. Replace `opf-cli` with `opf-tui` or `opf-gui` to use an interactive interface. CLI flag descriptions, runtime messages and error texts are currently written in Brazilian Portuguese (pt-BR).
+Every example uses `opf-cli`. Replace `opf-cli` with `opf-tui` or `opf-gui` to use an interactive interface. Flag help, runtime messages and errors follow the interface language (the operating system language by default; override with `--lang auto|en|pt-BR|es` or `OPF_LANG`) — see [Interface language](docs/MANUAL.md#811-interface-language).
 
 **1. Download only (Ubuntu 22.04)**
 
@@ -366,6 +372,6 @@ OPF was developed with **heavy AI assistance** — code generation, tests, revie
 
 ## Version
 
-**Version 0.1.0** — first public release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
+**Version 0.2.0** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
 
 **English** | [Português (BR)](docs/README.pt-BR.md)

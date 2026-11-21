@@ -1,10 +1,13 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
+
+	"opf/internal/i18n"
 )
 
 // Additional repository families. They match the package manager family used
@@ -63,7 +66,7 @@ func NormalizePackageRepositories(repos []PackageRepository, targetFamily string
 	}
 	targetFamily = strings.ToLower(strings.TrimSpace(targetFamily))
 	if !validRepositoryFamily(targetFamily) {
-		return nil, fmt.Errorf("família de destino inválida para repositórios: %q", targetFamily)
+		return nil, fmt.Errorf(i18n.T("família de destino inválida para repositórios: %q"), targetFamily)
 	}
 
 	out := make([]PackageRepository, 0, len(repos))
@@ -71,11 +74,11 @@ func NormalizePackageRepositories(repos []PackageRepository, targetFamily string
 	for i, repo := range repos {
 		normalized, err := normalizePackageRepository(repo, targetFamily)
 		if err != nil {
-			return nil, fmt.Errorf("repositório %d: %w", i+1, err)
+			return nil, fmt.Errorf(i18n.T("repositório %d: %w"), i+1, err)
 		}
 		slug := RepositorySlug(normalized.Name)
 		if _, duplicate := seen[slug]; duplicate {
-			return nil, fmt.Errorf("repositório %d: nome %q duplicado (identificador %q)", i+1, normalized.Name, slug)
+			return nil, fmt.Errorf(i18n.T("repositório %d: nome %q duplicado (identificador %q)"), i+1, normalized.Name, slug)
 		}
 		seen[slug] = struct{}{}
 		out = append(out, normalized)
@@ -104,61 +107,61 @@ func normalizePackageRepository(repo PackageRepository, targetFamily string) (Pa
 		repo.Family = targetFamily
 	}
 	if !validRepositoryFamily(repo.Family) {
-		return PackageRepository{}, fmt.Errorf("família inválida: %q", repo.Family)
+		return PackageRepository{}, fmt.Errorf(i18n.T("família inválida: %q"), repo.Family)
 	}
 	if repo.Family != targetFamily {
-		return PackageRepository{}, fmt.Errorf("família %q não corresponde ao alvo %q", repo.Family, targetFamily)
+		return PackageRepository{}, fmt.Errorf(i18n.T("família %q não corresponde ao alvo %q"), repo.Family, targetFamily)
 	}
 	if !repoNamePattern.MatchString(repo.Name) {
-		return PackageRepository{}, fmt.Errorf("nome inválido: %q (use letras, números, espaço, ponto, hífen ou sublinhado)", repo.Name)
+		return PackageRepository{}, fmt.Errorf(i18n.T("nome inválido: %q (use letras, números, espaço, ponto, hífen ou sublinhado)"), repo.Name)
 	}
 	if err := validateRepositoryURL(repo.URL, repo.Family); err != nil {
 		return PackageRepository{}, err
 	}
 	if repo.KeyFile != "" && repo.KeyURL != "" {
-		return PackageRepository{}, fmt.Errorf("informe chave por arquivo ou URL, não ambas")
+		return PackageRepository{}, errors.New(i18n.T("informe chave por arquivo ou URL, não ambas"))
 	}
 	if repo.InsecureSkipGPGCheck && (repo.KeyFile != "" || repo.KeyURL != "") {
-		return PackageRepository{}, fmt.Errorf("desative a chave ou o opt-in inseguro de GPG, não ambos")
+		return PackageRepository{}, errors.New(i18n.T("desative a chave ou o opt-in inseguro de GPG, não ambos"))
 	}
 	if !repo.InsecureSkipGPGCheck && repo.KeyFile == "" && repo.KeyURL == "" {
-		return PackageRepository{}, fmt.Errorf("informe a chave do repositório ou habilite o opt-in inseguro de GPG")
+		return PackageRepository{}, errors.New(i18n.T("informe a chave do repositório ou habilite o opt-in inseguro de GPG"))
 	}
 	if repo.CAFile != "" && repo.InsecureSkipTLSVerify {
-		return PackageRepository{}, fmt.Errorf("informe CA ou opt-in inseguro de TLS, não ambos")
+		return PackageRepository{}, errors.New(i18n.T("informe CA ou opt-in inseguro de TLS, não ambos"))
 	}
 	if strings.HasPrefix(strings.ToLower(repo.URL), "http://") && (repo.CAFile != "" || repo.InsecureSkipTLSVerify) {
-		return PackageRepository{}, fmt.Errorf("repositório HTTP não usa TLS; remova CA/insecure TLS")
+		return PackageRepository{}, errors.New(i18n.T("repositório HTTP não usa TLS; remova CA/insecure TLS"))
 	}
 	if repo.Family == RepositoryFamilyAPK && repo.InsecureSkipTLSVerify {
-		return PackageRepository{}, fmt.Errorf("APK não suporta ignorar TLS por repositório; use CA customizada")
+		return PackageRepository{}, errors.New(i18n.T("APK não suporta ignorar TLS por repositório; use CA customizada"))
 	}
 
 	switch repo.Family {
 	case RepositoryFamilyAPT:
 		if repo.Flat {
 			if repo.Suite != "" || len(repo.Components) > 0 {
-				return PackageRepository{}, fmt.Errorf("repositório flat não aceita suite nem components")
+				return PackageRepository{}, errors.New(i18n.T("repositório flat não aceita suite nem components"))
 			}
 		} else {
 			if repo.Suite == "" {
-				return PackageRepository{}, fmt.Errorf("informe a suite/distribuição APT")
+				return PackageRepository{}, errors.New(i18n.T("informe a suite/distribuição APT"))
 			}
 			if !repoSuitePattern.MatchString(repo.Suite) {
-				return PackageRepository{}, fmt.Errorf("suite APT inválida: %q", repo.Suite)
+				return PackageRepository{}, fmt.Errorf(i18n.T("suite APT inválida: %q"), repo.Suite)
 			}
 			if len(repo.Components) == 0 {
 				repo.Components = []string{"main"}
 			}
 			for _, component := range repo.Components {
 				if !repoSuitePattern.MatchString(component) {
-					return PackageRepository{}, fmt.Errorf("component APT inválido: %q", component)
+					return PackageRepository{}, fmt.Errorf(i18n.T("component APT inválido: %q"), component)
 				}
 			}
 		}
 	case RepositoryFamilyRPM, RepositoryFamilyAPK:
 		if repo.Suite != "" || len(repo.Components) > 0 || repo.Flat {
-			return PackageRepository{}, fmt.Errorf("suite/components/flat aplicam-se apenas a APT")
+			return PackageRepository{}, errors.New(i18n.T("suite/components/flat aplicam-se apenas a APT"))
 		}
 	}
 	return repo, nil
@@ -166,31 +169,31 @@ func normalizePackageRepository(repo PackageRepository, targetFamily string) (Pa
 
 func validateRepositoryURL(raw, family string) error {
 	if raw == "" {
-		return fmt.Errorf("URL do repositório é obrigatória")
+		return errors.New(i18n.T("URL do repositório é obrigatória"))
 	}
 	if repoControlCharsExpr.MatchString(raw) || strings.ContainsAny(raw, " \t\r\n") {
-		return fmt.Errorf("URL do repositório contém caracteres inválidos")
+		return errors.New(i18n.T("URL do repositório contém caracteres inválidos"))
 	}
 	if family != RepositoryFamilyRPM && strings.Contains(raw, "$") {
-		return fmt.Errorf("variáveis como $basearch só são suportadas em repositórios RPM/DNF")
+		return errors.New(i18n.T("variáveis como $basearch só são suportadas em repositórios RPM/DNF"))
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("URL do repositório inválida: %w", err)
+		return fmt.Errorf(i18n.T("URL do repositório inválida: %w"), err)
 	}
 	switch strings.ToLower(parsed.Scheme) {
 	case "http", "https":
 	default:
-		return fmt.Errorf("URL do repositório deve usar http ou https: %q", raw)
+		return fmt.Errorf(i18n.T("URL do repositório deve usar http ou https: %q"), raw)
 	}
 	if parsed.Host == "" {
-		return fmt.Errorf("URL do repositório sem host: %q", raw)
+		return fmt.Errorf(i18n.T("URL do repositório sem host: %q"), raw)
 	}
 	if parsed.User != nil {
-		return fmt.Errorf("URL do repositório não pode conter usuário/senha")
+		return errors.New(i18n.T("URL do repositório não pode conter usuário/senha"))
 	}
 	if parsed.Fragment != "" {
-		return fmt.Errorf("URL do repositório não pode conter fragmento")
+		return errors.New(i18n.T("URL do repositório não pode conter fragmento"))
 	}
 	return nil
 }

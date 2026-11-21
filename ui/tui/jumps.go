@@ -8,6 +8,7 @@ import (
 
 	opfapp "opf/internal/app"
 	"opf/internal/core"
+	"opf/internal/i18n"
 )
 
 // jumpDraft is the in-memory state of one SSH bridge. Passwords never leave
@@ -78,11 +79,11 @@ func (d jumpDraft) summary() string {
 func jumpAuthDisplay(mode string) string {
 	switch mode {
 	case opfapp.SSHJumpAuthKey:
-		return "chave"
+		return i18n.T("chave")
 	case opfapp.SSHJumpAuthKeyPassword:
-		return "chave+senha"
+		return i18n.T("chave+senha")
 	default:
-		return "senha"
+		return i18n.T("senha")
 	}
 }
 

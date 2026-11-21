@@ -8,6 +8,7 @@ import (
 
 	opfapp "opf/internal/app"
 	"opf/internal/core"
+	"opf/internal/i18n"
 )
 
 const (
@@ -94,12 +95,12 @@ func (d repoDraft) summary() string {
 	if url == "" {
 		url = "?"
 	}
-	key := "chave por arquivo"
+	key := i18n.T("chave por arquivo")
 	switch d.keySource {
 	case repoKeySourceURL:
-		key = "chave por URL"
+		key = i18n.T("chave por URL")
 	case repoKeySourceNone:
-		key = "sem chave (inseguro)"
+		key = i18n.T("sem chave (inseguro)")
 	}
 	return fmt.Sprintf("%s • %s • %s", strings.TrimSpace(d.name), url, key)
 }
@@ -109,9 +110,9 @@ func repoKeySourceDisplay(source string) string {
 	case repoKeySourceURL:
 		return "URL"
 	case repoKeySourceNone:
-		return "sem chave (inseguro)"
+		return i18n.T("sem chave (inseguro)")
 	default:
-		return "arquivo"
+		return i18n.T("arquivo")
 	}
 }
 
@@ -154,7 +155,7 @@ func (m *Model) buildRepositories() ([]core.PackageRepository, error) {
 	}
 	repos, err := core.NormalizePackageRepositories(m.repoInputs(), family)
 	if err != nil {
-		return nil, fmt.Errorf("repositórios adicionais: %w", err)
+		return nil, fmt.Errorf("%s: %w", i18n.T("repositórios adicionais"), err)
 	}
 	return repos, nil
 }

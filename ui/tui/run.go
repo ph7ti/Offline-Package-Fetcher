@@ -16,6 +16,7 @@ import (
 	"opf/internal/app"
 	"opf/internal/config"
 	"opf/internal/core"
+	"opf/internal/i18n"
 	"opf/internal/observability"
 	"opf/internal/transfer"
 )
@@ -34,7 +35,7 @@ func (m *Model) startRun() (tea.Model, tea.Cmd) {
 	m.runErr = nil
 	m.confirm = nil
 	m.progress = 0
-	m.progressText = "Iniciando"
+	m.progressText = i18n.T("Iniciando")
 	m.logs = nil
 	m.resetSteps()
 	m.screen = screenProgress
@@ -43,13 +44,13 @@ func (m *Model) startRun() (tea.Model, tea.Cmd) {
 		if cfg.Install && cfg.SSH.Host != "" {
 			isRoot, probeErr := app.DetectRoot(ctx, cfg.SSH)
 			if probeErr != nil {
-				return pipelineDoneMsg{err: fmt.Errorf("detectar privilégios remotos: %w", probeErr)}
+				return pipelineDoneMsg{err: fmt.Errorf("%s: %w", i18n.T("detectar privilégios remotos"), probeErr)}
 			}
 			if isRoot {
 				cfg.UseSudo = false
 				cfg.SudoPassword = ""
 			} else if !cfg.UseSudo {
-				return pipelineDoneMsg{err: errors.New("usuário remoto não é root; habilite “Usar sudo” e informe a senha da conta")}
+				return pipelineDoneMsg{err: errors.New(i18n.T("usuário remoto não é root; habilite “Usar sudo” e informe a senha da conta"))}
 			}
 		}
 		svc, createErr := app.New(cfg)
@@ -100,7 +101,7 @@ func (m *Model) detectTarget() tea.Cmd {
 func (m *Model) buildConfig() (app.Config, error) {
 	packages := splitList(m.pkgInput.Value())
 	if len(packages) == 0 {
-		return app.Config{}, errors.New("informe ao menos um pacote")
+		return app.Config{}, errors.New(i18n.T("informe ao menos um pacote"))
 	}
 	repositories, err := m.buildRepositories()
 	if err != nil {
@@ -123,7 +124,7 @@ func (m *Model) buildConfig() (app.Config, error) {
 		}
 	}
 	if install && m.sudo && sudoPassword == "" {
-		return app.Config{}, errors.New("sudo exige a senha da conta")
+		return app.Config{}, errors.New(i18n.T("sudo exige a senha da conta"))
 	}
 	cfg := app.Config{
 		StorePath:       strings.TrimSpace(m.dbInput.Value()),
@@ -202,7 +203,7 @@ func (m *Model) updateProgress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "c":
 		if m.cancel != nil {
-			m.reporter.Log("warn", "cancelamento solicitado")
+			m.reporter.Log("warn", i18n.T("cancelamento solicitado"))
 			m.cancel()
 		}
 	}
@@ -279,32 +280,48 @@ func (m *Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) saveSettings() {
+	languageValue := ""
+	if m.settingsLanguage != nil {
+		languageValue = m.settingsLanguage.Value()
+	}
+	language, languageOK := normalizeLanguageSetting(languageValue)
+	if !languageOK {
+		m.errorMsg = i18n.T("idioma inválido: use auto, en, pt-BR ou es")
+		return
+	}
 	timeout, err := strconv.Atoi(strings.TrimSpace(m.settingsTimeout.Value()))
 	if err != nil || timeout <= 0 {
-		m.errorMsg = "timeout inválido"
+		m.errorMsg = i18n.T("timeout inválido")
 		return
 	}
 	port, portErr := strconv.Atoi(strings.TrimSpace(m.syslogPort.Value()))
 	if portErr != nil || port <= 0 || port > 65535 {
-		m.errorMsg = "porta Syslog inválida"
+		m.errorMsg = i18n.T("porta Syslog inválida")
 		return
 	}
 	m.settings.TempDir = strings.TrimSpace(m.settingsTemp.Value())
 	m.settings.StageTimeoutSecs = timeout
+	m.settings.Language = language
 	m.settings.SyslogEnabled = m.syslogEnabled
 	m.settings.SyslogHost = strings.TrimSpace(m.syslogHost.Value())
 	m.settings.SyslogPort = port
 	m.settings.SyslogProto = strings.ToLower(strings.TrimSpace(m.syslogProto.Value()))
 	m.settings.SyslogTag = strings.TrimSpace(m.syslogTag.Value())
 	if m.settings.SyslogEnabled && m.settings.SyslogHost == "" {
-		m.errorMsg = "host Syslog é obrigatório quando habilitado"
+		m.errorMsg = i18n.T("host Syslog é obrigatório quando habilitado")
 		return
 	}
 	if err := config.Save(m.settingsPath, m.settings); err != nil {
 		m.errorMsg = err.Error()
 		return
 	}
-	m.errorMsg = "configurações salvas"
+	if m.settingsLanguage != nil {
+		m.settingsLanguage.SetValue(m.settings.Language)
+	}
+	i18n.SetFromSetting(m.settings.Language)
+	m.localizeInputs()
+	m.buildForm()
+	m.errorMsg = i18n.T("configurações salvas")
 }
 
 func (m *Model) openHistory() {
@@ -312,7 +329,7 @@ func (m *Model) openHistory() {
 		m.openStore()
 	}
 	if m.store == nil {
-		m.errorMsg = "SQLite indisponível"
+		m.errorMsg = i18n.T("SQLite indisponível")
 		return
 	}
 	sessoes, err := m.store.ListarSessoes(context.Background(), true)
@@ -334,7 +351,7 @@ func (m *Model) continueLatest() {
 			return
 		}
 	}
-	m.errorMsg = "nenhuma sessão inacabada"
+	m.errorMsg = i18n.T("nenhuma sessão inacabada")
 }
 
 type sessionConfigJSON struct {
@@ -359,7 +376,7 @@ func (m *Model) resumeSession(id int64) {
 		m.openStore()
 	}
 	if m.store == nil {
-		m.errorMsg = "SQLite indisponível"
+		m.errorMsg = i18n.T("SQLite indisponível")
 		return
 	}
 	sessao, err := m.store.ObterSessao(context.Background(), id)
@@ -418,9 +435,9 @@ func (m *Model) resumeSession(id int64) {
 	m.manualTarget = true
 	m.screen = screenSSH
 	m.buildForm()
-	message := fmt.Sprintf("Retomando sessão #%d; reautentique e revise os dados.", id)
+	message := i18n.T("Retomando sessão #%d; reautentique e revise os dados.", id)
 	if needsJumpPassword {
-		message += " As senhas das pontes não são restauradas; informe-as novamente."
+		message += " " + i18n.T("As senhas das pontes não são restauradas; informe-as novamente.")
 	}
 	m.errorMsg = message
 }
@@ -442,7 +459,7 @@ func (m *Model) exportReport(format string) {
 		m.openStore()
 	}
 	if m.store == nil {
-		m.errorMsg = "SQLite indisponível"
+		m.errorMsg = i18n.T("SQLite indisponível")
 		return
 	}
 	id := m.reportSessionID
@@ -467,25 +484,25 @@ func (m *Model) exportReport(format string) {
 		base += ".md"
 		err = observability.SalvarMarkdown(base, relatorio)
 	default:
-		err = errors.New("formato de relatório inválido")
+		err = errors.New(i18n.T("formato de relatório inválido"))
 	}
 	if err != nil {
 		m.errorMsg = err.Error()
 		return
 	}
-	m.errorMsg = "Relatório gerado: " + base
+	m.errorMsg = i18n.T("Relatório gerado: %s", base)
 }
 
 func (m *Model) sendReportSyslog() {
 	if !m.settings.SyslogEnabled {
-		m.errorMsg = "habilite o Syslog nas configurações globais"
+		m.errorMsg = i18n.T("habilite o Syslog nas configurações globais")
 		return
 	}
 	if m.store == nil {
 		m.openStore()
 	}
 	if m.store == nil {
-		m.errorMsg = "SQLite indisponível"
+		m.errorMsg = i18n.T("SQLite indisponível")
 		return
 	}
 	id := m.reportSessionID
@@ -505,7 +522,7 @@ func (m *Model) sendReportSyslog() {
 		m.errorMsg = err.Error()
 		return
 	}
-	m.errorMsg = "Relatório enfileirado ao Syslog (best-effort)."
+	m.errorMsg = i18n.T("Relatório enfileirado ao Syslog (best-effort).")
 }
 
 func (m *Model) buildReport(sessionID int64) string {
@@ -513,7 +530,7 @@ func (m *Model) buildReport(sessionID int64) string {
 		m.openStore()
 	}
 	if m.store == nil {
-		return "SQLite indisponível."
+		return i18n.T("SQLite indisponível.")
 	}
 	relatorio, err := observability.GerarRelatorio(context.Background(), m.store, sessionID)
 	if err != nil {
@@ -544,13 +561,13 @@ func (m *Model) buildSSHConfig() (core.SSHConfig, error) {
 	if strings.TrimSpace(m.sshPort.Value()) != "" {
 		parsed, err := strconv.Atoi(strings.TrimSpace(m.sshPort.Value()))
 		if err != nil || parsed <= 0 || parsed > 65535 {
-			return core.SSHConfig{}, errors.New("porta SSH inválida")
+			return core.SSHConfig{}, errors.New(i18n.T("porta SSH inválida"))
 		}
 		port = parsed
 	}
 	cfg := core.SSHConfig{Host: strings.TrimSpace(m.sshHost.Value()), Port: port, User: strings.TrimSpace(m.sshUser.Value()), KeyPath: strings.TrimSpace(m.sshKey.Value()), Password: m.sshPassword.Value(), KnownHosts: strings.TrimSpace(m.knownHosts.Value()), InsecureSkipHostKey: m.skipHostKey}
 	if cfg.Host == "" || cfg.User == "" {
-		return cfg, errors.New("host e usuário SSH são obrigatórios")
+		return cfg, errors.New(i18n.T("host e usuário SSH são obrigatórios"))
 	}
 	jumps, err := m.buildJumpHosts(cfg)
 	if err != nil {
