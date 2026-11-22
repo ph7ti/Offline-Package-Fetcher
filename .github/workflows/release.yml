@@ -731,44 +731,20 @@ jobs:
       - name: Install verification tools
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y file unzip
+          sudo apt-get install --no-install-recommends -y file
 
       - name: Verify installer assets
         working-directory: dist
         run: |
           set -euo pipefail
-          # Linux .run installers are exercised in their build job; verify the
-          # CLI profile here after the artifact round-trip.
-          for arch in amd64 arm64; do
-            target="$(mktemp -d)"
-            OPF_INSTALL_PROFILE=cli OPF_INSTALL_PREFIX="${target}" "./opf-installer-linux-${arch}.run" >/dev/null
-            test -x "${target}/bin/opf-cli"
-            rm -rf "${target}"
+          # Functional install/uninstall tests run in the dedicated build jobs:
+          # Linux .run CLI profile, Windows CLI/TUI raw installer + uninstaller,
+          # Windows full Inno installer + uninstaller, and macOS pkg payload.
+          for asset in             opf-installer-linux-amd64.run             opf-installer-linux-arm64.run             opf-CLI-installer-windows-amd64.zip             opf-CLI-installer-windows-arm64.zip             opf-Full-installer-windows-amd64.zip             opf-Full-installer-windows-arm64.zip             opf-installer-darwin-amd64.pkg             opf-installer-darwin-arm64.pkg; do
+            test -s "${asset}"
+            file "${asset}"
           done
-          # CLI/TUI Windows installer: menu EXE + raw CLI/TUI payload.
-          for arch in amd64 arm64; do
-            archive="opf-CLI-installer-windows-${arch}.zip"
-            test -s "${archive}"
-            unzip -l "${archive}" | tr '\\' '/' | grep -q "opf-CLI-installer.exe"
-            unzip -l "${archive}" | tr '\\' '/' | grep -q "payload/opf-cli.exe"
-            unzip -l "${archive}" | tr '\\' '/' | grep -q "payload/opf-tui.exe"
-            unzip -l "${archive}" | tr '\\' '/' | grep -q "payload/uninstall-opf.exe"
-            if unzip -l "${archive}" | grep -q "payload/opf-gui.exe"; then
-              echo "::error title=CLI installer contains GUI::${archive}"
-              exit 1
-            fi
-          done
-          # Full Windows installer: single Inno Setup executable in a zip.
-          for arch in amd64 arm64; do
-            archive="opf-Full-installer-windows-${arch}.zip"
-            test -s "${archive}"
-            unzip -l "${archive}" | tr '\\' '/' | grep -q "opf-Full-installer-windows-${arch}.exe"
-          done
-          for arch in amd64 arm64; do
-            test -s "opf-installer-darwin-${arch}.pkg"
-            file "opf-installer-darwin-${arch}.pkg"
-          done
-          echo "OK: only installer assets are present."
+          echo "OK: only the eight installer assets are present."
 
       - name: Generate SHA256SUMS
         working-directory: dist
