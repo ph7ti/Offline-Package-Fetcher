@@ -8,7 +8,7 @@ set -euo pipefail
 arch="${1:-}"
 payload="${2:-}"
 out="${3:-}"
-version="${4:-0.2.5}"
+version="${4:-0.2.6}"
 if [[ -z "${arch}" || -z "${payload}" || -z "${out}" ]]; then
 	echo "usage: $0 <amd64|arm64> <payload-dir> <output.pkg> [version]" >&2
 	exit 2
@@ -49,9 +49,12 @@ cat >"${work}/root-gui/Applications/OPF.app/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-pkgbuild --root "${work}/root-cli" --identifier org.opf.cli --version "${version}" --install-location / "${work}/cli.pkg"
-pkgbuild --root "${work}/root-tui" --identifier org.opf.tui --version "${version}" --install-location / "${work}/tui.pkg"
-pkgbuild --root "${work}/root-gui" --identifier org.opf.gui --version "${version}" --install-location / "${work}/gui.pkg"
+mkdir -p "${work}/scripts"
+install -m 0755 "$(dirname "$0")/../../installers/macos/postinstall" "${work}/scripts/postinstall"
+
+pkgbuild --root "${work}/root-cli" --scripts "${work}/scripts" --identifier org.opf.cli --version "${version}" --install-location / "${work}/cli.pkg"
+pkgbuild --root "${work}/root-tui" --scripts "${work}/scripts" --identifier org.opf.tui --version "${version}" --install-location / "${work}/tui.pkg"
+pkgbuild --root "${work}/root-gui" --scripts "${work}/scripts" --identifier org.opf.gui --version "${version}" --install-location / "${work}/gui.pkg"
 
 sed -e "s/@ARCH@/${host_arch}/g" -e "s/@VERSION@/${version}/g" \
 	"$(dirname "$0")/../../installers/macos/distribution.xml" >"${work}/distribution.xml"

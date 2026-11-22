@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -17,15 +16,8 @@ func TestDefaultDatabasePathIsWritableUserPath(t *testing.T) {
 	if filepath.Base(path) != "opf.db" {
 		t.Fatalf("DefaultDatabasePath = %q, want .../opf/opf.db", path)
 	}
-	if filepath.Base(filepath.Dir(path)) != "opf" {
-		t.Fatalf("DefaultDatabasePath = %q, want parent directory named opf", path)
-	}
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatalf("UserConfigDir: %v", err)
-	}
-	if filepath.Dir(filepath.Dir(path)) != configDir {
-		t.Fatalf("DefaultDatabasePath = %q, want under %q", path, configDir)
+	if filepath.Base(filepath.Dir(path)) != "data" || filepath.Base(filepath.Dir(filepath.Dir(path))) != "OPF" {
+		t.Fatalf("DefaultDatabasePath = %q, want .../OPF/data/opf.db", path)
 	}
 }
 

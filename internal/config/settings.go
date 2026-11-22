@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -48,16 +49,40 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "opf", "config.json"), nil
 }
 
-// DefaultDatabasePath is the GUI's writable default for the SQLite history.
-// It deliberately does not depend on the process working directory: the GUI
-// may be launched from a read-only folder (for example a temporary extraction
-// directory), where creating opf.db fails.
+// DefaultDatabasePath is the per-user SQLite path used by the GUI when no
+// database_path is configured. Windows uses %LocalAppData%\OPF\data, macOS
+// uses ~/Library/Application Support/OPF/data and Linux uses
+// $XDG_DATA_HOME/OPF/data (or ~/.local/share/OPF/data). The installer creates
+// the same location.
 func DefaultDatabasePath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("resolver diretório de dados: %w", err)
+	var base string
+	switch runtime.GOOS {
+	case "windows":
+		base = os.Getenv("LOCALAPPDATA")
+		if base == "" {
+			dir, err := os.UserCacheDir()
+			if err != nil {
+				return "", fmt.Errorf("resolver diretório de dados: %w", err)
+			}
+			base = dir
+		}
+	case "darwin":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolver diretório de dados: %w", err)
+		}
+		base = filepath.Join(home, "Library", "Application Support")
+	default:
+		base = os.Getenv("XDG_DATA_HOME")
+		if base == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("resolver diretório de dados: %w", err)
+			}
+			base = filepath.Join(home, ".local", "share")
+		}
 	}
-	return filepath.Join(dir, "opf", "opf.db"), nil
+	return filepath.Join(base, "OPF", "data", "opf.db"), nil
 }
 
 // DefaultOutputDir is the GUI's writable default for downloaded artifacts.

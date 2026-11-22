@@ -13,7 +13,7 @@
 
 **Baixe pacotes Linux e o conjunto completo de dependências para ambientes isolados — e, quando fizer sentido, transfira por SSH/SFTP e instale no destino.**
 
-Versão **0.2.5** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
+Versão **0.2.6** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
 
 ---
 
@@ -84,7 +84,7 @@ Métodos de fetch:
 
 Arquiteturas reconhecidas: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` e `i386`/`i686` (normalizadas por família: `amd64` no APT, `x86_64` no RPM, entre outras).
 
-Limites conhecidos da v0.2.5:
+Limites conhecidos da v0.2.6:
 
 - **macOS** é plataforma secundária e requer Docker para baixar pacotes.
 - **WSL** atende apenas Ubuntu/Debian (APT); famílias RPM/APK exigem Docker.
@@ -147,13 +147,13 @@ Cada instalador oferece quatro perfis: **bundle** (GUI + TUI + CLI), **somente G
 | Windows amd64 / arm64 | `opf-installer-windows-amd64.zip`, `opf-installer-windows-arm64.zip` |
 | macOS amd64 / arm64 | `opf-installer-darwin-amd64.pkg`, `opf-installer-darwin-arm64.pkg` |
 
-- **Windows:** extraia o `.zip` e execute `opf-installer.exe`; escolha um dos quatro perfis. Ele instala em `%LocalAppData%\OPF`, adiciona a pasta ao `PATH` do usuário e cria um atalho no Menu Iniciar para a GUI. O instalador e o payload são executáveis Go/Windows brutos (sem setup empacotado e sem `msiexec`), aceitos pelo Cortex XDR.
+- **Windows:** extraia o `.zip` e execute `opf-installer.exe`; escolha um dos quatro perfis. Ele pergunta a pasta de instalação (padrão `C:\Program Files\OPF`), adiciona ao `PATH` do usuário, cria opcionalmente o atalho no Menu Iniciar, cria o banco em `%LocalAppData%\OPF\data\opf.db` e oferece abrir a GUI/TUI. O instalador e o payload são executáveis Go/Windows brutos (sem setup empacotado e sem `msiexec`), aceitos pelo Cortex XDR.
 - **Linux:** `chmod +x opf-installer-linux-amd64.run` e execute; escolha um perfil. Como root instala em `/usr/local/bin`; caso contrário, em `~/.local/bin`, e cria uma entrada de desktop para a GUI. Não interativo: `OPF_INSTALL_PROFILE=bundle ./opf-installer-linux-amd64.run`.
 - **macOS:** abra o `.pkg` e selecione uma opção; instala o `OPF.app` em `/Applications` e CLI/TUI em `/usr/local/bin`. O pacote não é assinado; use **Abrir** no menu de contexto se o Gatekeeper bloquear.
 
 ### B. Binários da release
 
-1. Abra [a página da release v0.2.5](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.5).
+1. Abra [a página da release v0.2.6](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.6).
 2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto. Cada release publica 25 ativos: CLI/TUI para linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64 e darwin/arm64; GUI para linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64 e darwin/arm64; os seis instaladores acima; e `SHA256SUMS`. Binários Linux usam UPX; executáveis Windows são publicados **brutos dentro de `.zip`** (extraia com `Expand-Archive` ou qualquer ferramenta zip); binários macOS ficam em `.tar.gz` (extraia com `tar -xzf <ativo>.tar.gz`).
 3. Confira a integridade do download:
 
@@ -265,7 +265,7 @@ opf-cli --target alpine:3.20 --arch x86_64 --pkg curl \
   --export-markdown ./opf-output/relatorio.md
 ```
 
-O diretório de saída padrão da CLI/TUI é `./opf-output`, o banco padrão é `./opf.db` e o destino remoto padrão é `/tmp/opf-sessao-<id>`. A **GUI** usa caminhos por usuário — SQLite em `<UserConfigDir>/opf/opf.db` (por exemplo, `%AppData%\opf\opf.db` no Windows) e saída em `~/OPF` — para funcionar mesmo quando aberta de uma pasta somente leitura; se o caminho configurado não puder ser aberto, a GUI usa o padrão por usuário e mostra um aviso.
+O diretório de saída padrão da CLI/TUI é `./opf-output`, o banco padrão é `./opf.db` e o destino remoto padrão é `/tmp/opf-sessao-<id>`. A **GUI** usa caminhos por usuário — SQLite em `<LocalAppData>/OPF/data/opf.db` (por exemplo, `%LocalAppData%\OPF\data\opf.db` no Windows) e saída em `~/OPF` — para funcionar mesmo quando aberta de uma pasta somente leitura; se o caminho configurado não puder ser aberto, a GUI usa o padrão por usuário e mostra um aviso.
 
 ## GUI e TUI
 
@@ -377,6 +377,6 @@ O OPF foi desenvolvido com **apoio intensivo de ferramentas de IA** — geraçã
 
 ## Versão
 
-**Versão 0.2.5** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
+**Versão 0.2.6** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
 
 [English](../README.md) | **Português (BR)**

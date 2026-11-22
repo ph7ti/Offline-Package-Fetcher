@@ -5,6 +5,7 @@ package gui
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -15,8 +16,8 @@ import (
 func TestOpenStoreFallsBackToUserDatabase(t *testing.T) {
 	test.NewApp()
 	temp := t.TempDir()
-	t.Setenv("APPDATA", temp)         // Windows
-	t.Setenv("XDG_CONFIG_HOME", temp) // Linux/macOS
+	t.Setenv("LOCALAPPDATA", temp)  // Windows
+	t.Setenv("XDG_DATA_HOME", temp) // Linux
 
 	// A regular file where a directory is expected makes the configured
 	// SQLite path unopenable, emulating a read-only or removed location.
@@ -33,7 +34,10 @@ func TestOpenStoreFallsBackToUserDatabase(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = u.store.Close() })
 
-	want := filepath.Join(temp, "opf", "opf.db")
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS uses ~/Library/Application Support")
+	}
+	want := filepath.Join(temp, "OPF", "data", "opf.db")
 	if filepath.Clean(u.dbEntry.Text) != want {
 		t.Fatalf("dbEntry.Text = %q, want fallback %q", u.dbEntry.Text, want)
 	}

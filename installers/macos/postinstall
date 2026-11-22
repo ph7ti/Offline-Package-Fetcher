@@ -1,0 +1,22 @@
+#!/bin/sh
+# Create the per-user OPF database for the console user selected in the
+# macOS installer. Runs as root from pkgbuild/postinstall.
+set -e
+
+user="$(stat -f '%Su' /dev/console 2>/dev/null || true)"
+if [ -z "$user" ] || [ "$user" = "root" ]; then
+    exit 0
+fi
+
+home="$(dscl . -read "/Users/${user}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+if [ -z "$home" ]; then
+    exit 0
+fi
+
+dir="${home}/Library/Application Support/OPF/data"
+mkdir -p "$dir"
+: >>"${dir}/opf.db"
+chown -R "${user}" "${dir}"
+chmod 700 "$dir"
+chmod 600 "${dir}/opf.db"
+exit 0

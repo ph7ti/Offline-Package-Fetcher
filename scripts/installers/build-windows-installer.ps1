@@ -1,7 +1,7 @@
 param(
     [ValidateSet('amd64','arm64')][string]$Arch = 'amd64',
     [string]$PayloadRoot = 'dist\installer-payload',
-    [string]$Version = '0.2.5',
+    [string]$Version = '0.2.6',
     [string]$OutDir = 'dist\installers'
 )
 
@@ -18,7 +18,7 @@ try {
     $env:GOOS = 'windows'
     $env:GOARCH = $Arch
     $env:CGO_ENABLED = '0'
-    & go build -trimpath -ldflags "-s -w -buildid=" -o $exe ./cmd/opf-installer
+    & go build -trimpath -ldflags "-s -w -buildid= -X main.version=$Version" -o $exe ./cmd/opf-installer
     if ($LASTEXITCODE -ne 0) { throw "go build installer failed: $LASTEXITCODE" }
 } finally {
     Pop-Location

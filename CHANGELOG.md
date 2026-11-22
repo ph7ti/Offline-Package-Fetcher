@@ -4,6 +4,38 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-11-21
+
+Installer UX and database-location improvements.
+
+### Changed
+
+- **Windows installer is now a guided wizard**: choose the profile, enter the
+  installation folder (default `C:\Program Files\OPF`), decide whether to
+  create a Start Menu shortcut, review clear progress steps and optionally
+  open the GUI or TUI at the end.
+- If the chosen folder needs administrator rights, the installer offers to
+  restart with UAC or to pick a folder under the user profile.
+- The Windows installer adds the chosen folder to the **user PATH**, creates
+  the database at `%LocalAppData%\OPF\data\opf.db` and shows a final summary.
+- The **GUI default database** moved to `%LocalAppData%\OPF\data\opf.db` on
+  Windows, `~/Library/Application Support/OPF/data/opf.db` on macOS and
+  `$XDG_DATA_HOME/OPF/data/opf.db` on Linux.
+- The **Linux `.run`** installer now prompts for the installation folder,
+  offers the desktop shortcut, creates the database, shows progress and can
+  open the GUI or TUI.
+- The **macOS `.pkg`** postinstall creates the per-user database for the
+  console user.
+- CLI/TUI installer messages use boxes, numbered steps, defaults and
+  yes/no prompts designed for non-technical users.
+
+### Notes
+
+- Installer assets remain raw Go/shell/pkg payloads (no packed Windows setup
+  and no MSI), so Cortex XDR accepts them.
+- macOS packages keep Apple's fixed `/Applications` and `/usr/local/bin`
+  locations; the macOS installer is a native `.pkg`, not a folder wizard.
+
 ## [0.2.5] - 2026-11-21
 
 Native installers for every supported OS and CPU, with four installation

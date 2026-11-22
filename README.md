@@ -13,7 +13,7 @@
 
 **Download Linux packages and their complete dependency closure for isolated environments — and, when it makes sense, ship them over SSH/SFTP and install them on the target.**
 
-Version **0.2.5** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
+Version **0.2.6** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
 
 ---
 
@@ -84,7 +84,7 @@ Fetch methods:
 
 Recognized architectures: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` and `i386`/`i686` (normalized per family: `amd64` for APT, `x86_64` for RPM, and so on).
 
-Known limits in v0.2.5:
+Known limits in v0.2.6:
 
 - **macOS** is a secondary platform and requires Docker to download packages.
 - **WSL** covers Ubuntu/Debian (APT) only; RPM/APK families require Docker.
@@ -147,13 +147,13 @@ Each installer offers four profiles: **bundle** (GUI + TUI + CLI), **GUI only**,
 | Windows amd64 / arm64 | `opf-installer-windows-amd64.zip`, `opf-installer-windows-arm64.zip` |
 | macOS amd64 / arm64 | `opf-installer-darwin-amd64.pkg`, `opf-installer-darwin-arm64.pkg` |
 
-- **Windows:** extract the `.zip` and run `opf-installer.exe`; choose one of the four profiles. It installs to `%LocalAppData%\OPF`, adds that folder to the per-user `PATH` and creates a Start Menu shortcut for the GUI. The installer and payload are raw Go/Windows executables (no packed setup and no `msiexec`), which Cortex XDR accepts.
+- **Windows:** extract the `.zip` and run `opf-installer.exe`; choose one of the four profiles. It asks for the installation folder (default `C:\Program Files\OPF`), adds it to the per-user `PATH`, optionally creates a Start Menu shortcut, creates the database at `%LocalAppData%\OPF\data\opf.db` and offers to open the GUI/TUI. The installer and payload are raw Go/Windows executables (no packed setup and no `msiexec`), which Cortex XDR accepts.
 - **Linux:** `chmod +x opf-installer-linux-amd64.run` then run it; choose a profile. As root it installs to `/usr/local/bin`, otherwise to `~/.local/bin`, and creates a desktop entry for the GUI. Non-interactive: `OPF_INSTALL_PROFILE=bundle ./opf-installer-linux-amd64.run`.
 - **macOS:** open the `.pkg` and select one choice; it installs `OPF.app` to `/Applications` and the CLI/TUI to `/usr/local/bin`. The package is unsigned; use **Open** from the context menu if Gatekeeper blocks it.
 
 ### B. Release binaries
 
-1. Open [the v0.2.5 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.5).
+1. Open [the v0.2.6 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.6).
 2. Download the asset for your platform and the `SHA256SUMS` file published next to it. Each release publishes 25 assets: CLI/TUI for linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64 and darwin/arm64; GUI for linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64 and darwin/arm64; the six installers above; and `SHA256SUMS`. Linux binaries are UPX-packed; Windows executables are published **raw inside `.zip` archives** (extract with `Expand-Archive` or any zip tool); macOS binaries are inside `.tar.gz` archives (extract with `tar -xzf <asset>.tar.gz`).
 3. Verify the download:
 
@@ -274,7 +274,7 @@ opf-cli --target alpine:3.20 --arch x86_64 --pkg curl \
   --export-markdown ./opf-output/report.md
 ```
 
-The CLI/TUI default output directory is `./opf-output`, the default database is `./opf.db` and the default remote directory is `/tmp/opf-sessao-<id>`. Every artifact and the `SHA256SUMS` manifest land in `./opf-output/sessao-<id>/`. The **GUI** uses per-user paths instead — SQLite at `<UserConfigDir>/opf/opf.db` (for example `%AppData%\opf\opf.db` on Windows) and output at `~/OPF` — so it works when launched from a read-only folder; a configured database path that cannot be opened falls back to the per-user default with a warning.
+The CLI/TUI default output directory is `./opf-output`, the default database is `./opf.db` and the default remote directory is `/tmp/opf-sessao-<id>`. Every artifact and the `SHA256SUMS` manifest land in `./opf-output/sessao-<id>/`. The **GUI** uses per-user paths instead — SQLite at `<LocalAppData>/OPF/data/opf.db` (for example `%LocalAppData%\OPF\data\opf.db` on Windows) and output at `~/OPF` — so it works when launched from a read-only folder; a configured database path that cannot be opened falls back to the per-user default with a warning.
 
 ## GUI and TUI
 
@@ -387,6 +387,6 @@ OPF was developed with **heavy AI assistance** — code generation, tests, revie
 
 ## Version
 
-**Version 0.2.5** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
+**Version 0.2.6** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
 
 **English** | [Português (BR)](docs/README.pt-BR.md)

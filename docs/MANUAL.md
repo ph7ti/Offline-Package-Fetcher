@@ -1,8 +1,8 @@
 [English](MANUAL.md) | [Português (BR)](MANUAL.pt-BR.md)
 
-# OPF User Manual — v0.2.5
+# OPF User Manual — v0.2.6
 
-**Offline Package Fetcher (OPF) 0.2.5** — download Linux packages and their complete dependency closure for isolated environments, transfer them over SSH/SFTP and install them on the target after explicit confirmation.
+**Offline Package Fetcher (OPF) 0.2.6** — download Linux packages and their complete dependency closure for isolated environments, transfer them over SSH/SFTP and install them on the target after explicit confirmation.
 
 ## Table of contents
 
@@ -30,7 +30,7 @@ Out of scope:
 - configuring package repositories on the target (OPF never writes repository configuration on the destination);
 - distributing arbitrary files (OPF handles package artifacts only);
 - multi-target sessions (one session targets exactly one distribution, version and architecture);
-- repository authentication (not available in 0.2.5).
+- repository authentication (not available in 0.2.6).
 
 ## 2. Core concepts
 
@@ -102,14 +102,14 @@ Each architecture-specific installer offers four profiles: **bundle** (GUI + TUI
 | Platform | Asset | Behaviour |
 |:---|:---|:---|
 | Linux amd64/arm64 | `opf-installer-linux-*.run` | installs to `/usr/local/bin` as root, otherwise `~/.local/bin`; adds a GUI desktop entry |
-| Windows amd64/arm64 | `opf-installer-windows-*.zip` | contains `opf-installer.exe` + `payload/`; installs to `%LocalAppData%\OPF`, adds the user PATH and a Start Menu GUI shortcut |
+| Windows amd64/arm64 | `opf-installer-windows-*.zip` | contains `opf-installer.exe` + `payload/`; wizard with folder (default `C:\Program Files\OPF`), user PATH, optional Start Menu shortcut, database and optional launch |
 | macOS amd64/arm64 | `opf-installer-darwin-*.pkg` | installs `OPF.app` to `/Applications` and CLI/TUI to `/usr/local/bin`; four installer choices |
 
 The Windows installer and payload are raw executables (no packed setup, no MSI) so Cortex XDR accepts them. The macOS package is unsigned; right-click **Open** if Gatekeeper blocks it. Linux `.run` installers accept `OPF_INSTALL_PROFILE=bundle|gui|tui|cli` and `OPF_INSTALL_PREFIX` for unattended use.
 
 #### Release binaries
 
-Release assets are produced by the release workflow from the tagged commit. For v0.2.5 the published set is 25 assets (24 binaries/installers plus the checksum file):
+Release assets are produced by the release workflow from the tagged commit. For v0.2.6 the published set is 25 assets (24 binaries/installers plus the checksum file):
 
 | Asset | Description |
 |:---|:---|
@@ -577,7 +577,7 @@ Precedence: `--lang` > `OPF_LANG` > operating system. The aliases `pt` and `pt_b
 
 The language applies to flag help/usage, error messages, console progress, pipeline stage names and messages, and Markdown report labels; the GUI and the TUI translate their visible strings as well (see [6. GUI walkthrough](#6-gui-walkthrough) and [7. TUI walkthrough](#7-tui-walkthrough)). `-h`/`--help` prints the localized reference and exits with status 0.
 
-Limitation in 0.2.5: low-level diagnostics remain in Brazilian Portuguese regardless of the selected language. This covers package-manager and isolated-environment output (apt/dpkg, dnf/yum/rpm, apk, Docker/WSL tooling), error causes emitted by the fetch, transfer, install, resolve, inspect, storage, config and app layers, and some internal log (slog) lines.
+Limitation in 0.2.6: low-level diagnostics remain in Brazilian Portuguese regardless of the selected language. This covers package-manager and isolated-environment output (apt/dpkg, dnf/yum/rpm, apk, Docker/WSL tooling), error causes emitted by the fetch, transfer, install, resolve, inspect, storage, config and app layers, and some internal log (slog) lines.
 
 ## 9. Remote target detection
 
@@ -746,7 +746,7 @@ The WSL fetcher removes its repository files during cleanup; Docker containers a
 
 - Use `--repo-key`/`--repo-key-url` with a key you trust; `insecure_skip_gpg_check` and `insecure_skip_tls_verify` exist for controlled labs only and are logged as warnings.
 - An `http://` repository disables transport encryption; GPG signing remains mandatory unless explicitly skipped.
-- There is no repository authentication in 0.2.5: URLs with `user:password@` are rejected. Publish the repository on a network reachable by the Docker environment or use a mirror without credentials.
+- There is no repository authentication in 0.2.6: URLs with `user:password@` are rejected. Publish the repository on a network reachable by the Docker environment or use a mirror without credentials.
 - Repository configuration is session-scoped; nothing is installed or persisted on the target, and SHA-256 verification still applies at all three points.
 
 ## 12. SSH: authentication, known_hosts, jump hosts and sudo
@@ -874,7 +874,7 @@ An abort does not invalidate artifacts that were already validated, but the sess
 
 Checkpoint state is stored in `etapas_sessao` (`pendente`, `em_andamento`, `concluida`, `falhou`, `pulada`) and the current stage in `sessoes.etapa_atual`.
 
-Resume is available **only in the GUI and the TUI** (**Continuar**, **Retomar**, `r` in history); the CLI has no resume flag in 0.2.5. The planner picks the safe stage:
+Resume is available **only in the GUI and the TUI** (**Continuar**, **Retomar**, `r` in history); the CLI has no resume flag in 0.2.6. The planner picks the safe stage:
 
 | Stored state | Resume from |
 |:---|:---|
@@ -896,7 +896,7 @@ Resume reuses the stored `config_json`, remote directory, image, WSL distro and 
 
 ## 14. SQLite database
 
-The CLI/TUI default database is `./opf.db` (`--db` to change). The **GUI** defaults to `<UserConfigDir>/opf/opf.db` (on Windows, `%AppData%\opf\opf.db`; on Linux/macOS, the per-user config directory) and `<home>/OPF` for output, so it does not depend on the process working directory. A database path configured in **Configurações Globais** is used when it can be opened; if it cannot, the GUI falls back to the per-user default and shows a warning. The driver is pure Go (`modernc.org/sqlite`), so no CGO is required. On open, OPF enables `journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000` and a single connection, then creates or migrates the schema additively.
+The CLI/TUI default database is `./opf.db` (`--db` to change). The **GUI** defaults to `<LocalAppData>/OPF/data/opf.db` (on Windows, `%LocalAppData%\OPF\data\opf.db`; on Linux/macOS, the per-user data directory) and `<home>/OPF` for output, so it does not depend on the process working directory. A database path configured in **Configurações Globais** is used when it can be opened; if it cannot, the GUI falls back to the per-user default and shows a warning. The driver is pure Go (`modernc.org/sqlite`), so no CGO is required. On open, OPF enables `journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000` and a single connection, then creates or migrates the schema additively.
 
 ### 14.1 Tables
 
@@ -987,7 +987,7 @@ ORDER BY eh_dependencia, nome;
 
 `--export-markdown <path>` renders the same data as Markdown with the sections `Relatório da Sessão #<id>`, `Host remoto`, `Destino e armazenamento`, `Pacotes solicitados`, `Pacotes` and `Eventos`. Section labels and the closing note (`Exportação gerada localmente. Nenhum segredo é incluído.`) are translated with the interface language; the names above are the Brazilian Portuguese source strings.
 
-The GUI report screen shows this Markdown, and both the GUI and the TUI write exports to the configured output directory as `opf-relatorio-<id>.json` / `.md`. Reports are produced from SQLite on demand: the GUI/TUI can render and export any historical session, while the CLI `--export-json` / `--export-markdown` flags export the session it just executed (the CLI has no resume or report-only command in 0.2.5). Reports are rendered in the interface language active at export time; event messages stored in SQLite keep the language they were recorded in, and JSON keys, role values (`principal`/`dependente`) and status codes are never translated.
+The GUI report screen shows this Markdown, and both the GUI and the TUI write exports to the configured output directory as `opf-relatorio-<id>.json` / `.md`. Reports are produced from SQLite on demand: the GUI/TUI can render and export any historical session, while the CLI `--export-json` / `--export-markdown` flags export the session it just executed (the CLI has no resume or report-only command in 0.2.6). Reports are rendered in the interface language active at export time; event messages stored in SQLite keep the language they were recorded in, and JSON keys, role values (`principal`/`dependente`) and status codes are never translated.
 
 ### 15.3 External Syslog
 
@@ -1028,7 +1028,7 @@ Delivery is best-effort and asynchronous: SQLite remains the source of truth, an
 | `opf-gui requer CGO_ENABLED=1 ...` | GUI built without CGO | install gcc + graphics libraries and run `make build-gui` |
 | `timeout inválido` / `porta Syslog inválida` (GUI/TUI) | settings validation | use a positive integer timeout and a port between 1 and 65535 |
 | `syslog indisponível após retries` (warning) | Syslog endpoint unreachable | events remain in SQLite; fix the endpoint or disable Syslog |
-| `SQLite indisponível` | configured database path is invalid, read-only or on a removed location | the GUI automatically falls back to `<UserConfigDir>/opf/opf.db`; otherwise adjust the path in **Configurações Globais** or `--db` |
+| `SQLite indisponível` | configured database path is invalid, read-only or on a removed location | the GUI automatically falls back to `<LocalAppData>/OPF/data/opf.db`; otherwise adjust the path in **Configurações Globais** or `--db` |
 | `database is locked` | another process writing to `opf.db` | stop the other process or use a separate `--db` per run |
 
 Diagnostic checklist when a session fails:
@@ -1059,13 +1059,13 @@ Diagnostic checklist when a session fails:
 
 **Can I run OPF fully air-gapped?** The OPF host must reach the package repositories (and image registries) once. After the artifacts are on the target, installation uses only local files. If `dpkg` fails and `apt-get install -f` runs, it may try the network; a complete dependency closure avoids that.
 
-**Why are messages in Portuguese?** Brazilian Portuguese (pt-BR) is the source language of the interface strings. The interface follows the operating system language by default and starts in English when the OS language is not English, pt-BR or Spanish; override it with `--lang auto|en|pt-BR|es` or `OPF_LANG` (see [8.11 Interface language](#811-interface-language)). Low-level package-manager and environment diagnostics remain in pt-BR in 0.2.5. Documentation is bilingual (EN default, PT-BR linked).
+**Why are messages in Portuguese?** Brazilian Portuguese (pt-BR) is the source language of the interface strings. The interface follows the operating system language by default and starts in English when the OS language is not English, pt-BR or Spanish; override it with `--lang auto|en|pt-BR|es` or `OPF_LANG` (see [8.11 Interface language](#811-interface-language)). Low-level package-manager and environment diagnostics remain in pt-BR in 0.2.6. Documentation is bilingual (EN default, PT-BR linked).
 
 **Can I download for a different architecture?** Yes, set `--arch`. Docker runs the matching platform; the resolver downloads for that architecture.
 
 **Can I install without SSH?** No. Installation requires SSH plus explicit confirmation; without SSH OPF only downloads and verifies.
 
-**Can I resume a CLI session?** Not in 0.2.5. Resume is a GUI/TUI feature; the CLI always starts a new session.
+**Can I resume a CLI session?** Not in 0.2.6. Resume is a GUI/TUI feature; the CLI always starts a new session.
 
 **Are jump-host passwords stored?** No. They live in memory for the run and must be re-entered when resuming.
 
@@ -1093,6 +1093,6 @@ Diagnostic checklist when a session fails:
 
 ## 20. Version and license
 
-This manual documents **Offline Package Fetcher 0.2.5**. OPF is distributed under the **GNU General Public License v3.0**; see [LICENSE](../LICENSE) for the full text. The project was developed with heavy AI assistance, as disclosed in the [README](../README.md#ai-assisted-development).
+This manual documents **Offline Package Fetcher 0.2.6**. OPF is distributed under the **GNU General Public License v3.0**; see [LICENSE](../LICENSE) for the full text. The project was developed with heavy AI assistance, as disclosed in the [README](../README.md#ai-assisted-development).
 
 Related documents: [README (EN)](../README.md) · [README (PT-BR)](README.pt-BR.md) · [Manual (PT-BR)](MANUAL.pt-BR.md) · [Security (EN)](SECURITY.md) · [Security (PT-BR)](SECURITY.pt-BR.md) · [Technical document (PT-BR)](project-description.pt-BR.md) · [GUI/TUI specification (PT-BR)](specs/gui-tui.pt-BR.md) · [Changelog](../CHANGELOG.md)
