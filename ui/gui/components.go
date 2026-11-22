@@ -60,6 +60,8 @@ func screenTitleText(title string) string {
 		return i18n.T("Conexão SSH e Jump Hosts")
 	case "Pacotes e Pré-check":
 		return i18n.T("Pacotes e Pré-check")
+	case "Package diff":
+		return i18n.T("Package diff")
 	case "Pipeline":
 		return i18n.T("Pipeline")
 	case "Resultado":
@@ -85,6 +87,8 @@ func pageCopy(title string) (string, string) {
 		return i18n.T("Passo 02 • acesso"), i18n.T("Conecte ao destino com detecção automática e verificação estrita de host key.")
 	case "Pacotes e Pré-check":
 		return i18n.T("Passo 03 • carga"), i18n.T("Informe os pacotes e escolha como a instalação será tratada no destino.")
+	case "Package diff":
+		return i18n.T("Passo 03 • versões"), i18n.T("Revise as atualizações detectadas entre as versões instaladas e as candidatas antes de continuar.")
 	case "Pipeline":
 		return i18n.T("Em execução"), i18n.T("Acompanhe o download, a validação e a transferência sem perder o contexto.")
 	case "Resultado":
@@ -197,6 +201,12 @@ func (u *UI) refreshCurrentScreen() {
 		u.showSSH()
 	case "Pacotes e Pré-check":
 		u.showPackages()
+	case "Package diff":
+		if u.preview != nil && u.previewSvc != nil {
+			u.showPackageDiff()
+		} else {
+			u.showPackages()
+		}
 	case "Resultado":
 		u.showResult()
 	case "Relatório da Sessão":

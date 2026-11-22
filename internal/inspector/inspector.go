@@ -32,6 +32,28 @@ func New(family string, tm core.TransferManager) (*Inspector, error) {
 	return &Inspector{family: family, tm: tm}, nil
 }
 
+func (i *Inspector) ListInstalled(ctx context.Context) ([]core.InstalledPackage, error) {
+	if i.tm == nil {
+		return nil, errors.New("transferência SSH não configurada para o inventário")
+	}
+	var cmd string
+	switch i.family {
+	case "apt":
+		cmd = "dpkg-query -W -f='${db:Status-Abbrev}\\t${Package}\\t${Version}\\t${Architecture}\\n' 2>/dev/null || true"
+	case "rpm":
+		cmd = "rpm -qa --qf '%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\n' 2>/dev/null || true"
+	case "apk":
+		cmd = "apk info -v 2>/dev/null || true"
+	default:
+		return nil, fmt.Errorf("família de inventário não suportada: %q", i.family)
+	}
+	output, err := i.tm.RunCommand(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("executar inventário %s: %w", i.family, err)
+	}
+	return parseInstalled(i.family, output)
+}
+
 func (i *Inspector) InspectPackages(ctx context.Context, pkgs []string) ([]core.InstalledPackage, error) {
 	names := make([]string, 0, len(pkgs))
 	for _, pkg := range pkgs {

@@ -13,7 +13,7 @@
 
 **Baixe pacotes Linux e o conjunto completo de dependências para ambientes isolados — e, quando fizer sentido, transfira por SSH/SFTP e instale no destino.**
 
-Versão **0.2.8** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
+Versão **0.3.0** (desenvolvimento) · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
 
 ---
 
@@ -59,6 +59,7 @@ Fluxo resumido de uma sessão:
 - **Ambiente isolado por sessão**: Docker em todas as famílias; WSL no Windows para APT.
 - **Pipeline de 13 etapas** com checkpoint, retomada segura, cancelamento (`abortada`) e cleanup garantido.
 - **Integridade SHA-256 em três pontos** (P1 no ambiente, P2 no manifesto do host, P3 no destino) com um único `SHA256SUMS` por sessão.
+- **Package diff (v0.3.0)**: coleta opcional de versões instaladas (`all`, `default` ou `none`) e pausa antes do pipeline quando há atualizações, mostrando o salto e perguntando se deve prosseguir. Inventário, diff e decisão ficam no relatório.
 - **Múltiplos pacotes por sessão**, com pré-check remoto de pacotes já instalados e `--force-reinstall` quando necessário.
 - **SSH/SFTP** com verificação estrita de host key, autenticação por chave ou senha e **cadeia de pontes (jump hosts)** com credenciais independentes por salto.
 - **Instalação remota** apenas após confirmação explícita, com `sudo` pela senha da conta SSH enviada **somente por stdin**.
@@ -84,7 +85,7 @@ Métodos de fetch:
 
 Arquiteturas reconhecidas: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` e `i386`/`i686` (normalizadas por família: `amd64` no APT, `x86_64` no RPM, entre outras).
 
-Limites conhecidos da v0.2.8:
+Limites conhecidos da v0.3.0:
 
 - **macOS** é plataforma secundária e requer Docker para baixar pacotes.
 - **WSL** atende apenas Ubuntu/Debian (APT); famílias RPM/APK exigem Docker.
@@ -271,7 +272,7 @@ O diretório de saída padrão da CLI/TUI é `./opf-output`, o banco padrão é 
 
 ## GUI e TUI
 
-- **GUI** (`opf-gui`): painel inicial com indicadores e sessões recentes, configuração de sessão, conexão SSH com detecção de destino e pontes, pacotes e pré-check, execução com etapas e log em tempo real, confirmação de instalação, resultado, relatório renderizado, histórico e configurações globais. Tema claro/escuro alternável. O ícone do OPF é embutido em todos os executáveis Windows e aparece na barra de tarefas.
+- **GUI** (`opf-gui`): painel inicial com indicadores e sessões recentes, configuração de sessão, conexão SSH com detecção de destino e pontes, pacotes e pré-check com o seletor **Coletar versões do pacote**, confirmação **Package diff**, execução com etapas e log em tempo real, confirmação de instalação, resultado, relatório renderizado, histórico e configurações globais. Tema claro/escuro alternável. O ícone do OPF é embutido em todos os executáveis Windows e aparece na barra de tarefas.
 - **TUI** (`opf-tui`): o mesmo fluxo em terminal, com atalhos como `ctrl+d` (detectar destino), `ctrl+t` (testar SSH), `ctrl+j` (pontes), `ctrl+r` (repositórios), `J`/`M` (exportar relatório) e `S` (enviar ao Syslog).
 
 O passo a passo completo, tela por tela e tecla por tecla, está no [manual do usuário](MANUAL.pt-BR.md#6-gui-passo-a-passo).
@@ -419,6 +420,6 @@ O OPF foi desenvolvido com **apoio intensivo de ferramentas de IA** — geraçã
 
 ## Versão
 
-**Versão 0.2.8** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
+**Versão 0.3.0** — em desenvolvimento; a release publicada atual é **0.2.8**. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
 
 [English](../README.md) | **Português (BR)**

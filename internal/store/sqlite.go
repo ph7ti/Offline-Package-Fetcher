@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS sessoes (
     ambiente_id     TEXT,
     config_json     TEXT,
     host_info_json  TEXT,
+    preview_json    TEXT,
     arquivada       INTEGER NOT NULL DEFAULT 0
 );
 `
@@ -160,6 +161,7 @@ func Open(path string) (*Store, error) {
 		"ambiente_id":    "TEXT",
 		"config_json":    "TEXT",
 		"host_info_json": "TEXT",
+		"preview_json":   "TEXT",
 		"arquivada":      "INTEGER NOT NULL DEFAULT 0",
 	}); err != nil {
 		db.Close()
@@ -291,8 +293,8 @@ func (s *Store) CreateSessao(ctx context.Context, sessao *core.Sessao) error {
 			iniciada_em, finalizada_em, so_destino, versao_destino,
 			arch_destino, metodo_fetch, host_destino, include_optional, status,
 			etapa_atual, output_dir, remote_dir, imagem_docker, wsl_distro,
-			ambiente_id, config_json, host_info_json, arquivada
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			ambiente_id, config_json, host_info_json, preview_json, arquivada
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		formatTime(sessao.IniciadaEm),
 		nullableTime(sessao.FinalizadaEm),
 		sessao.TargetOS,
@@ -310,6 +312,7 @@ func (s *Store) CreateSessao(ctx context.Context, sessao *core.Sessao) error {
 		nullString(sessao.AmbienteID),
 		nullString(sessao.ConfigJSON),
 		nullString(sessao.HostInfoJSON),
+		nullString(sessao.PreviewJSON),
 		boolInt(sessao.Arquivada),
 	)
 	if err != nil {
@@ -336,6 +339,7 @@ func (s *Store) ObterSessao(ctx context.Context, id int64) (*core.Sessao, error)
 		ambienteID      sql.NullString
 		configJSON      sql.NullString
 		hostInfoJSON    sql.NullString
+		previewJSON     sql.NullString
 		includeOptional int
 		arquivada       int
 		status          string
@@ -344,14 +348,14 @@ func (s *Store) ObterSessao(ctx context.Context, id int64) (*core.Sessao, error)
 		SELECT id, iniciada_em, finalizada_em, so_destino, versao_destino,
 		       arch_destino, metodo_fetch, host_destino, include_optional, status,
 		       etapa_atual, output_dir, remote_dir, imagem_docker, wsl_distro,
-		       ambiente_id, config_json, host_info_json, arquivada
+		       ambiente_id, config_json, host_info_json, preview_json, arquivada
 		FROM sessoes
 		WHERE id = ?`, id).Scan(
 		&sessao.ID, &iniciadaEm, &finalizadaEm, &sessao.TargetOS,
 		&sessao.TargetVersion, &sessao.TargetArch, &sessao.FetchMethod,
 		&hostDestino, &includeOptional, &status,
 		&sessao.EtapaAtual, &outputDir, &remoteDir, &imagemDocker, &wslDistro,
-		&ambienteID, &configJSON, &hostInfoJSON, &arquivada,
+		&ambienteID, &configJSON, &hostInfoJSON, &previewJSON, &arquivada,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("sessão %d não encontrada", id)
@@ -382,6 +386,7 @@ func (s *Store) ObterSessao(ctx context.Context, id int64) (*core.Sessao, error)
 	sessao.AmbienteID = ambienteID.String
 	sessao.ConfigJSON = configJSON.String
 	sessao.HostInfoJSON = hostInfoJSON.String
+	sessao.PreviewJSON = previewJSON.String
 	sessao.Arquivada = arquivada != 0
 	if sessao.EtapaAtual == 0 {
 		sessao.EtapaAtual = 1
@@ -828,6 +833,15 @@ func (s *Store) AtualizarHostInfo(ctx context.Context, sessaoID int64, infoJSON 
 		"UPDATE sessoes SET host_info_json = ? WHERE id = ?", nullString(infoJSON), sessaoID,
 	); err != nil {
 		return fmt.Errorf("atualizar host info da sessão %d: %w", sessaoID, err)
+	}
+	return nil
+}
+
+func (s *Store) AtualizarSessaoPreview(ctx context.Context, sessaoID int64, previewJSON string) error {
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE sessoes SET preview_json = ? WHERE id = ?", nullString(previewJSON), sessaoID,
+	); err != nil {
+		return fmt.Errorf("atualizar preview da sessão %d: %w", sessaoID, err)
 	}
 	return nil
 }

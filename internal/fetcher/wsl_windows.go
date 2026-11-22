@@ -158,6 +158,13 @@ func (f *WSLFetcher) Download(ctx context.Context, pkg string, includeOptional b
 	return f.DownloadPackages(ctx, []string{pkg}, includeOptional)
 }
 
+func (f *WSLFetcher) ResolveCandidates(ctx context.Context, roots []string, includeOptional bool) ([]core.CandidatePackage, error) {
+	if !f.prepared || f.runner == nil || f.resolver == nil {
+		return nil, errors.New("ambiente WSL não preparado")
+	}
+	return resolveCandidates(ctx, f.resolver, roots, includeOptional)
+}
+
 func (f *WSLFetcher) DownloadPackages(ctx context.Context, roots []string, includeOptional bool) ([]core.PackageArtifact, error) {
 	if !f.prepared || f.runner == nil || f.resolver == nil {
 		return nil, errors.New("ambiente WSL não preparado")

@@ -75,6 +75,75 @@ func (r *YumDnfResolver) ListDependencies(ctx context.Context, pkg string, inclu
 	return deps, nil
 }
 
+// ListCandidates reads candidate versions from repository metadata. For DNF,
+// dependency names are also resolved through repoquery when available.
+func (r *YumDnfResolver) ListCandidates(ctx context.Context, pkgs []string, includeOptional bool) ([]core.CandidatePackage, error) {
+	if r.exec == nil {
+		return nil, errors.New("executor do ambiente isolado não configurado")
+	}
+	manager, err := r.detectManager(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r.manager = manager
+	r.includeOptional = includeOptional
+	names := make(map[string]struct{}, len(pkgs))
+	for _, pkg := range pkgs {
+		if !rpmPackagePattern.MatchString(pkg) {
+			return nil, fmt.Errorf("nome de pacote RPM inválido: %q", pkg)
+		}
+		names[pkg] = struct{}{}
+	}
+	if manager == "dnf" {
+		depCmd := []string{"dnf", "repoquery", "--requires", "--resolve", "--recursive", "--queryformat=%{name}"}
+		depCmd = append(depCmd, pkgs...)
+		if output, depErr := r.exec.Exec(ctx, depCmd); depErr == nil {
+			for _, name := range strings.Split(output, "\n") {
+				name = strings.TrimSpace(name)
+				if rpmPackagePattern.MatchString(name) {
+					names[name] = struct{}{}
+				}
+			}
+		}
+	}
+	query := []string{"dnf", "repoquery", "--latest-limit=1", "--queryformat=%{name}\t%{epoch}:%{version}-%{release}"}
+	if manager != "dnf" {
+		query = []string{"repoquery", "--qf", "%{name}\t%{epoch}:%{version}-%{release}"}
+	}
+	for name := range names {
+		query = append(query, name)
+	}
+	stdout, err := r.exec.Exec(ctx, query)
+	if err != nil && manager == "dnf" {
+		fallback := []string{"dnf", "repoquery", "--queryformat=%{name}\t%{epoch}:%{version}-%{release}"}
+		for name := range names {
+			fallback = append(fallback, name)
+		}
+		stdout, err = r.exec.Exec(ctx, fallback)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("resolver versões candidatas RPM: %w", err)
+	}
+	versions := make(map[string]string)
+	for _, line := range strings.Split(stdout, "\n") {
+		fields := strings.Split(strings.TrimSpace(line), "\t")
+		if len(fields) != 2 {
+			continue
+		}
+		versions[fields[0]] = fields[1]
+	}
+	candidates := make([]core.CandidatePackage, 0, len(names))
+	for name := range names {
+		if version := versions[name]; version != "" {
+			candidates = append(candidates, core.CandidatePackage{Name: name, Version: version})
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, errors.New("nenhuma versão candidata RPM encontrada")
+	}
+	return candidates, nil
+}
+
 func (r *YumDnfResolver) DownloadCommands(pkgs []string) [][]string {
 	if r.manager == "" || len(pkgs) == 0 {
 		return nil

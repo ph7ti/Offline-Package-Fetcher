@@ -256,9 +256,18 @@ The **Modo de operação** toggle (**Enviar e instalar via SSH**) hides or revea
 
 ### 6.4 Pacotes e Pré-check
 
-Package entry (one per line or comma-separated), optional dependencies, **Forçar reinstalação (ignorar pré-check)**, **Instalar após transferir e validar**, **Usar sudo com a senha da conta** and the sudo password. With SSH disabled, the install card is hidden and the screen states that packages will only be downloaded and validated locally. **Iniciar** runs the session.
+Package entry (one per line or comma-separated), optional dependencies, **Forçar reinstalação (ignorar pré-check)**, **Instalar após transferir e validar**, **Usar sudo com a senha da conta** and the sudo password. The **Coletar versões do pacote** selector offers **Todos** (all installed packages), **Default** (only affected packages and dependencies) and **Nenhum** (no collection, no Package diff). Collection requires SSH and runs before any download. With SSH disabled, the install card is hidden, the selector is forced to **Nenhum**, and the screen states that packages will only be downloaded and validated locally. **Iniciar** starts the collection and then the session.
 
 <img src="../prints/gui-packages.png" width="850" alt="Packages and pre-check with optional dependencies and sudo">
+
+### 6.4.1 Package diff
+
+When at least one installed package (or dependency) has a newer candidate version, OPF shows **Package diff** between **Pacotes e Pré-check** and **Pipeline**. The table lists the package, installed version, candidate version, the `From → To` jump and the role (principal/dependency). It is not shown when all requested packages are new or already up to date.
+
+- **Prosseguir com a instalação** (or **Prosseguir com download** when installation is disabled) runs the pipeline from step 2.
+- **Abortar** finalizes the session as aborted without downloading/installing; the report keeps the collected inventory, the diff and the decision.
+
+The report includes a **Pacotes instalados no destino** table and a **Package diff** section with a readable `De pacote X versão A para versão B (salto A → B)` line per upgrade. The user decision is recorded as approved or aborted.
 
 ### 6.5 Pipeline
 
@@ -372,6 +381,7 @@ Reports are generated from SQLite after the pipeline finishes, only when an expo
 | `--pkg` | repeatable / list | *(required)* | at least one; repeat the flag or separate values with commas. APT names may carry an architecture qualifier (`libssl3:amd64`) |
 | `--with-optional` | bool | `false` | includes Recommends/Suggests/Enhances (APT) and weak dependencies (DNF); ignored by APK |
 | `--force-reinstall` | bool | `false` | ignores the pre-check result and reinstalls packages already present |
+| `--version-report` | string | `default` with SSH, `none` without SSH | `all` (full inventory), `default` (affected packages and dependencies) or `none`; requires `--ssh-host` for `all`/`default`. With upgrades and `--install`, the CLI prints the jump and asks for confirmation; `--yes` skips it. Declining aborts the session and keeps the decision in the report |
 
 Names are validated by each resolver: APT `^[a-z0-9][a-z0-9+.-]+(?::[a-z0-9][a-z0-9-]*)?$`, RPM/APK `^[A-Za-z0-9][A-Za-z0-9+._-]*$`. Spaces, semicolons, backticks, `$()` and path separators are rejected before anything runs.
 
@@ -786,7 +796,7 @@ The pipeline stage names follow the interface language and are shown by the GUI/
 | # | Stage (stored name) | What happens | Skipped when |
 |:--:|:---|:---|:---|
 | 1 | `abrir sessão` | creates the SQLite session, persists requested packages, records the "sessão iniciada" event | only on a resumed session |
-| 2 | `pré-check remoto` | `dpkg-query` / `rpm -q` / `apk info` on the target; already-installed roots are recorded as `ja_instalado` and removed from the download list unless `--force-reinstall` | no SSH |
+| 2 | `pré-check remoto` | `dpkg-query` / `rpm -q` / `apk info` on the target; installed roots are compared with the preview: upgrades are kept, equal/newer versions are recorded as `ja_instalado` and removed unless `--force-reinstall` | no SSH |
 | 3 | `criar ambiente isolado` | Docker container or WSL environment for the target; validates architecture | all packages already installed |
 | 4 | `resolver dependências` | resolver lists the dependency closure | as above |
 | 5 | `baixar pacotes` | downloads all artifacts inside the environment | as above |

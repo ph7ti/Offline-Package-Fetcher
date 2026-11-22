@@ -294,9 +294,18 @@ Ao trocar a distro, a GUI sugere versão e arquitetura padrão (`ubuntu`/`22.04`
 | **Incluir dependências opcionais** | equivalentes a Recommends/Suggests/Enhances e weak deps |
 | **Forçar reinstalação (ignorar pré-check)** | baixa mesmo que o pacote já exista no destino |
 
-Sem SSH, os controles de instalação ficam desabilitados e um banner informa que os pacotes serão apenas baixados e validados. **Iniciar** executa o pipeline.
+O seletor **Coletar versões do pacote** oferece **Todos** (todos os instalados), **Default** (apenas afetados e dependências) e **Nenhum** (sem coleta e sem Package diff). A coleta exige SSH e ocorre antes de qualquer download. Sem SSH, os controles de instalação ficam desabilitados, o seletor é forçado para **Nenhum** e um banner informa que os pacotes serão apenas baixados e validados. **Iniciar** inicia a coleta e depois o pipeline.
 
 <img src="../prints/gui-packages.png" width="850" alt="Tela de pacotes e pré-check com opções e sudo">
+
+### 6.4.1 Package diff
+
+Quando ao menos um pacote instalado (ou dependência) tem versão candidata mais nova, o OPF exibe **Package diff** entre **Pacotes e Pré-check** e **Pipeline**. A tabela mostra pacote, versão instalada, versão candidata, o salto `De → Para` e o papel (principal/dependência). A tela não aparece quando todos os pacotes são novos ou já estão atualizados.
+
+- **Prosseguir com a instalação** (ou **Prosseguir com download** sem instalação) executa o pipeline a partir da etapa 2.
+- **Abortar** finaliza a sessão como abortada, sem baixar/instalar; o relatório mantém o inventário coletado, o diff e a decisão.
+
+O relatório inclui a tabela **Pacotes instalados no destino** e a seção **Package diff** com uma linha legível `De pacote X versão A para versão B (salto A → B)` por atualização. A decisão do usuário é registrada como aprovada ou abortada.
 
 ### 6.5 Pipeline
 
@@ -421,6 +430,7 @@ A CLI usa o pacote `flag` da biblioteca padrão: aceita `-flag` e `--flag`. Flag
 | `--pkg` | repetível / lista | — | obrigatório ao menos um; aceita repetição ou valores separados por vírgula |
 | `--with-optional` | bool | `false` | inclui Recommends/Suggests/Enhances (APT) e weak deps (DNF) |
 | `--force-reinstall` | bool | `false` | ignora o resultado do pré-check e baixa mesmo assim |
+| `--version-report` | string | `default` com SSH, `none` sem SSH | `all` (inventário completo), `default` (afetados e dependências) ou `none`; exige `--ssh-host` para `all`/`default`. Com upgrades e `--install`, a CLI mostra o salto e pede confirmação; `--yes` pula. Recusar aborta a sessão e mantém a decisão no relatório |
 
 ### 8.3 Fetch e ambiente
 
@@ -795,7 +805,7 @@ Os nomes das etapas acompanham o idioma da interface; a tabela abaixo usa os nom
 | # | Nome | O que acontece | Observações |
 |:---:|:---|:---|:---|
 | 1 | abrir sessão | cria o registro em `sessoes`, grava `config_json` e os roots em `pacotes_solicitados` | etapa sempre executada no início |
-| 2 | pré-check remoto | consulta o gerenciador remoto; pacotes presentes viram `ja_instalado` e saem dos roots | pulada sem SSH ou sem inspector; `--force-reinstall` mantém os roots |
+| 2 | pré-check remoto | consulta o gerenciador remoto e compara com o preview: upgrades são mantidos, versões iguais/mais novas viram `ja_instalado` e saem dos roots | pulada sem SSH ou sem inspector; `--force-reinstall` mantém os roots |
 | 3 | criar ambiente isolado | Docker/WSL com a distro/versão exata; valida `uname -m`; configura repositórios adicionais; prepara ferramentas RPM/EPEL | grava `ambiente_id`, `imagem_docker`/`wsl_distro`, `output_dir` e `remote_dir` |
 | 4 | resolver dependências | resolve a união das dependências dos roots | usa o resolver da família |
 | 5 | baixar pacotes | executa os comandos de download no ambiente | etapas 4 e 5 são concluídas em sequência após resolução+download |

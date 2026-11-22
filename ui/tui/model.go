@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"opf/internal/app"
 	"opf/internal/config"
 	"opf/internal/core"
 	"opf/internal/i18n"
@@ -28,6 +29,7 @@ const (
 	screenJumps
 	screenJumpEdit
 	screenPackages
+	screenPackageDiff
 	screenProgress
 	screenResult
 	screenReport
@@ -71,6 +73,15 @@ type pipelineDoneMsg struct {
 	err    error
 }
 
+// previewDoneMsg carries the pre-pipeline package diff. When preview is nil
+// (or has no upgrades) the pipeline continues immediately; otherwise the
+// Package diff screen asks the user to proceed or abort.
+type previewDoneMsg struct {
+	svc     *app.Service
+	preview *app.PackagePreview
+	err     error
+}
+
 type sshTestMsg struct {
 	err error
 }
@@ -95,10 +106,16 @@ type Model struct {
 	logs         []string
 	running      bool
 	cancel       context.CancelFunc
+	runCtx       context.Context
 	confirm      *confirmRequest
+
+	preview        *app.PackagePreview
+	previewSvc     *app.Service
+	previewLoading bool
 
 	result          *core.PipelineResult
 	runErr          error
+	notice          string
 	reportText      string
 	reportOffset    int
 	reportBack      screen
@@ -112,6 +129,7 @@ type Model struct {
 
 	optional      bool
 	force         bool
+	versionReport string
 	syslogEnabled bool
 	skipHostKey   bool
 	detectedText  string
@@ -198,10 +216,11 @@ func newModel() *Model {
 	}
 	i18n.SetFromSetting(settings.Language)
 	m := &Model{
-		screen:       screenWelcome,
-		settingsPath: settingsPath,
-		settings:     settings,
-		events:       make(chan tea.Msg, 2000),
+		screen:        screenWelcome,
+		settingsPath:  settingsPath,
+		settings:      settings,
+		versionReport: string(core.VersionReportDefault),
+		events:        make(chan tea.Msg, 2000),
 	}
 	m.targetInput = input("ubuntu", "")
 	m.versionInput = input("22.04", "")
@@ -423,6 +442,10 @@ func passwordInput(placeholder string) *textinput.Model {
 }
 
 func (m *Model) close() {
+	if m.previewSvc != nil {
+		_ = m.previewSvc.Close()
+		m.previewSvc = nil
+	}
 	if m.store != nil {
 		_ = m.store.Close()
 		m.store = nil
@@ -483,11 +506,52 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case confirmPromptMsg:
 		m.confirm = &confirmRequest{count: msg.count, response: msg.response}
 		return m, m.waitEvent()
+	case previewDoneMsg:
+		m.running = false
+		m.previewLoading = false
+		if msg.err != nil {
+			if msg.svc != nil {
+				_ = msg.svc.Close()
+			}
+			m.previewSvc = nil
+			m.preview = nil
+			if m.cancel != nil {
+				m.cancel()
+				m.cancel = nil
+			}
+			m.runCtx = nil
+			m.screen = screenPackages
+			m.errorMsg = i18n.T("Package diff: %s", msg.err.Error())
+			m.buildForm()
+			return m, nil
+		}
+		m.preview = msg.preview
+		m.previewSvc = msg.svc
+		if msg.preview == nil || len(msg.preview.Data.Diff) == 0 {
+			// No upgrades (or no preview at all): go straight to the pipeline.
+			m.running = true
+			m.progress = 0
+			m.progressText = i18n.T("Iniciando")
+			m.screen = screenProgress
+			svc := m.previewSvc
+			m.previewSvc = nil
+			return m, m.runPreviewedCmd(svc, msg.preview)
+		}
+		m.screen = screenPackageDiff
+		return m, nil
 	case pipelineDoneMsg:
 		m.running = false
-		m.cancel = nil
+		if m.cancel != nil {
+			m.cancel()
+			m.cancel = nil
+		}
+		m.runCtx = nil
+		m.previewSvc = nil
+		m.preview = nil
+		m.previewLoading = false
 		m.result = msg.result
 		m.runErr = msg.err
+		m.notice = ""
 		if msg.result != nil {
 			m.sessionID = msg.result.SessaoID
 			m.resumeID = 0
@@ -538,6 +602,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case screenWelcome:
 		return m.updateWelcome(msg)
+	case screenPackageDiff:
+		return m.updatePackageDiff(msg)
 	case screenProgress:
 		return m.updateProgress(msg)
 	case screenResult:
@@ -685,15 +751,31 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if len(m.form) > 0 && m.focus < len(m.form) {
 		item := &m.form[m.focus]
 		if item.choice != nil {
-			if key == " " && len(item.choices) > 0 {
+			if item.choice == &m.versionReport && !m.sshEnabled {
+				m.errorMsg = i18n.T("Coleta de versões exige SSH; modo forçado para Nenhum.")
+				return m, nil
+			}
+			delta := 0
+			switch key {
+			case " ", "right":
+				delta = 1
+			case "left":
+				delta = -1
+			default:
+				return m, nil
+			}
+			if len(item.choices) > 0 {
 				next := 0
 				for i, choice := range item.choices {
 					if choice == *item.choice {
-						next = (i + 1) % len(item.choices)
+						next = (i + delta + len(item.choices)) % len(item.choices)
 						break
 					}
 				}
 				*item.choice = item.choices[next]
+			}
+			if item.choice == &m.versionReport {
+				m.errorMsg = ""
 			}
 			return m, nil
 		}
@@ -803,6 +885,9 @@ func (m *Model) back() {
 func (m *Model) buildForm() {
 	m.form = nil
 	m.focus = 0
+	if m.versionReport == "" {
+		m.versionReport = string(core.VersionReportDefault)
+	}
 	switch m.screen {
 	case screenConfig:
 		m.form = []formItem{
@@ -859,6 +944,7 @@ func (m *Model) buildForm() {
 	case screenPackages:
 		m.form = []formItem{
 			{label: i18n.T("Pacotes (vírgula)"), input: m.pkgInput},
+			{label: i18n.T("Coletar versões do pacote"), choice: &m.versionReport, choices: versionReportChoices(), choiceDisplay: m.versionReportDisplay},
 			{label: i18n.T("Opcionais"), toggle: &m.optional},
 			{label: i18n.T("Forçar reinstalação"), toggle: &m.force},
 			{label: i18n.T("Instalar"), toggle: &m.install},
@@ -886,6 +972,49 @@ func (m *Model) resetSteps() {
 	for i := 0; i < core.TotalEtapas; i++ {
 		m.steps[i] = "[ ]"
 		m.stepName[i] = core.NomeEtapa(i + 1)
+	}
+}
+
+// versionReportChoices returns the selectable version collection modes in
+// display order: all installed packages, only the requested packages, or none.
+func versionReportChoices() []string {
+	return []string{
+		string(core.VersionReportAll),
+		string(core.VersionReportDefault),
+		string(core.VersionReportNone),
+	}
+}
+
+// versionReportDisplay localizes a selection value. Version collection needs
+// SSH, so the effective mode is forced to "none" when SSH is disabled.
+func (m *Model) versionReportDisplay(value string) string {
+	if !m.sshEnabled {
+		return i18n.T("Nenhum")
+	}
+	switch core.VersionReportMode(value) {
+	case core.VersionReportAll:
+		return i18n.T("Todos")
+	case core.VersionReportNone:
+		return i18n.T("Nenhum")
+	default:
+		return i18n.T("Default")
+	}
+}
+
+// effectiveVersionReport resolves the configured selection to the mode sent to
+// app.Config. Without SSH there is no destination to inspect, so the mode is
+// always "none".
+func (m *Model) effectiveVersionReport() core.VersionReportMode {
+	if !m.sshEnabled {
+		return core.VersionReportNone
+	}
+	switch core.VersionReportMode(strings.TrimSpace(m.versionReport)) {
+	case core.VersionReportAll:
+		return core.VersionReportAll
+	case core.VersionReportNone:
+		return core.VersionReportNone
+	default:
+		return core.VersionReportDefault
 	}
 }
 

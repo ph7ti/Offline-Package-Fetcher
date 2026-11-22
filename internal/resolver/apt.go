@@ -79,6 +79,79 @@ func (r *AptResolver) ListDependencies(ctx context.Context, pkg string, includeO
 	return deps, nil
 }
 
+// ListCandidates reads candidate versions from the isolated APT indexes
+// without downloading any package.
+func (r *AptResolver) ListCandidates(ctx context.Context, pkgs []string, _ bool) ([]core.CandidatePackage, error) {
+	if r.exec == nil {
+		return nil, errors.New("executor do ambiente isolado não configurado")
+	}
+	if len(pkgs) == 0 {
+		return nil, errors.New("nenhum pacote para resolver versões APT")
+	}
+	for _, pkg := range pkgs {
+		if err := r.validatePackage(pkg); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
+	prepare := [][]string{
+		{"mkdir", "-p", r.listsDir() + "/partial", r.archivesDir() + "/partial"},
+		append([]string{"apt-get"}, append(r.configArgs(), "update")...),
+	}
+	for _, cmd := range prepare {
+		if _, err := r.exec.Exec(ctx, cmd); err != nil {
+			return nil, fmt.Errorf("preparar índices APT para versões candidatas: %w", err)
+		}
+	}
+	cmd := append([]string{"apt-cache"}, r.configArgs()...)
+	cmd = append(cmd, "policy")
+	cmd = append(cmd, pkgs...)
+	stdout, err := r.exec.Exec(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("resolver versões candidatas APT: %w", err)
+	}
+	versions := parseAptPolicy(stdout)
+	candidates := make([]core.CandidatePackage, 0, len(pkgs))
+	for _, pkg := range pkgs {
+		version := versions[pkg]
+		if version == "" {
+			continue
+		}
+		candidates = append(candidates, core.CandidatePackage{Name: pkg, Version: version})
+	}
+	if len(candidates) == 0 {
+		return nil, errors.New("nenhuma versão candidata APT encontrada")
+	}
+	return candidates, nil
+}
+
+func parseAptPolicy(output string) map[string]string {
+	versions := make(map[string]string)
+	var current string
+	for _, raw := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if strings.HasSuffix(line, ":") && !strings.HasPrefix(raw, " ") && !strings.HasPrefix(raw, "\t") {
+			current = strings.TrimSuffix(line, ":")
+			continue
+		}
+		if current == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "Candidate:") {
+			version := strings.TrimSpace(strings.TrimPrefix(line, "Candidate:"))
+			if version != "" && version != "(none)" {
+				versions[current] = version
+			}
+		}
+	}
+	return versions
+}
+
 func (r *AptResolver) DownloadCommands(pkgs []string) [][]string {
 	download := append([]string{"apt-get"}, r.configArgs()...)
 	download = append(download, "-o", "APT::Architecture="+r.arch, "download")

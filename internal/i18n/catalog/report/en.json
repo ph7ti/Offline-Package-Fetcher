@@ -41,5 +41,16 @@
   "porta syslog inválida: %d": "invalid syslog port: %d",
   "tag syslog inválida: %q": "invalid syslog tag: %q",
   "syslog sink já fechado": "syslog sink already closed",
-  "fila do syslog cheia": "syslog queue is full"
+  "fila do syslog cheia": "syslog queue is full",
+  "## Pacotes instalados no destino": "## Installed packages on the destination",
+  "| Pacote | Versão | Arquitetura |": "| Package | Version | Architecture |",
+  "## Package diff": "## Package diff",
+  "- Nenhuma atualização de pacote foi detectada.": "- No package upgrade was detected.",
+  "| Pacote | De | Para | Salto | Papel |": "| Package | From | To | Jump | Role |",
+  "- De pacote %s versão %s para versão %s (salto %s → %s).": "- From package %s version %s to version %s (jump %s → %s).",
+  "aprovado": "approved",
+  "recusado — sessão abortada": "declined — session aborted",
+  "Decisão do usuário": "User decision",
+  "principal": "primary",
+  "dependência": "dependency"
 }

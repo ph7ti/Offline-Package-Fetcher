@@ -400,6 +400,13 @@ func (f *DockerFetcher) Download(ctx context.Context, pkg string, includeOptiona
 	return f.DownloadPackages(ctx, []string{pkg}, includeOptional)
 }
 
+func (f *DockerFetcher) ResolveCandidates(ctx context.Context, roots []string, includeOptional bool) ([]core.CandidatePackage, error) {
+	if !f.prepared || f.runtime == nil || f.resolver == nil {
+		return nil, errors.New("ambiente não preparado")
+	}
+	return resolveCandidates(ctx, f.resolver, roots, includeOptional)
+}
+
 func (f *DockerFetcher) DownloadPackages(ctx context.Context, roots []string, includeOptional bool) ([]core.PackageArtifact, error) {
 	if !f.prepared || f.runtime == nil || f.resolver == nil {
 		return nil, errors.New("ambiente não preparado")

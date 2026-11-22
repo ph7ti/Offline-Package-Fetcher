@@ -41,5 +41,16 @@
   "porta syslog inválida: %d": "puerto syslog no válido: %d",
   "tag syslog inválida: %q": "etiqueta syslog no válida: %q",
   "syslog sink já fechado": "syslog sink ya cerrado",
-  "fila do syslog cheia": "cola del syslog llena"
+  "fila do syslog cheia": "cola del syslog llena",
+  "## Pacotes instalados no destino": "## Paquetes instalados en el destino",
+  "| Pacote | Versão | Arquitetura |": "| Paquete | Versión | Arquitectura |",
+  "## Package diff": "## Package diff",
+  "- Nenhuma atualização de pacote foi detectada.": "- No se detectó ninguna actualización de paquetes.",
+  "| Pacote | De | Para | Salto | Papel |": "| Paquete | De | A | Salto | Rol |",
+  "- De pacote %s versão %s para versão %s (salto %s → %s).": "- Del paquete %s versión %s a la versión %s (salto %s → %s).",
+  "aprovado": "aprobado",
+  "recusado — sessão abortada": "rechazado — sesión abortada",
+  "Decisão do usuário": "Decisión del usuario",
+  "principal": "principal",
+  "dependência": "dependencia"
 }

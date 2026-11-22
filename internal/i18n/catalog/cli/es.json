@@ -111,5 +111,12 @@
   "URL de um repositório adicional (modo simples)": "URL de un repositorio adicional (modo simple)",
   "use --ssh-jump-password ou OPF_SSH_JUMP_PASSWORDS, não ambos": "use --ssh-jump-password o OPF_SSH_JUMP_PASSWORDS, no ambos",
   "Uso: opf-cli [opções]": "Uso: opf-cli [opciones]",
-  "usuário SSH do destino": "usuario SSH del destino"
+  "usuário SSH do destino": "usuario SSH del destino",
+  "coleta de versões instaladas: all, default ou none": "colección de versiones instaladas: all, default o none",
+  "--version-report all/default exige --ssh-host": "--version-report all/default requiere --ssh-host",
+  "Pacotes instalados coletados: %d": "Paquetes instalados recopilados: %d",
+  "Nenhuma atualização de pacote detectada.": "No se detectó ninguna actualización de paquetes.",
+  "Pacotes que serão atualizados:": "Paquetes que se actualizarán:",
+  "%d pacote(s) serão atualizados. Prosseguir com a instalação? [s/N]: ": "%d paquete(s) se actualizarán. ¿Continuar con la instalación? [s/N]: ",
+  "instalação recusada; sessão abortada (relatório disponível)": "instalación rechazada; sesión abortada (informe disponible)"
 }

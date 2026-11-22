@@ -27,46 +27,185 @@ func (m *Model) startRun() (tea.Model, tea.Cmd) {
 		m.errorMsg = err.Error()
 		return m, nil
 	}
+	if m.previewSvc != nil {
+		_ = m.previewSvc.Close()
+		m.previewSvc = nil
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
+	m.runCtx = ctx
 	m.running = true
 	m.errorMsg = ""
 	m.result = nil
 	m.runErr = nil
+	m.notice = ""
 	m.confirm = nil
 	m.progress = 0
 	m.progressText = i18n.T("Iniciando")
 	m.logs = nil
 	m.resetSteps()
-	m.screen = screenProgress
+	m.preview = nil
+	m.previewLoading = false
 	resumeID := m.resumeID
-	runCmd := func() tea.Msg {
-		if cfg.Install && cfg.SSH.Host != "" {
-			isRoot, probeErr := app.DetectRoot(ctx, cfg.SSH)
-			if probeErr != nil {
-				return pipelineDoneMsg{err: fmt.Errorf("%s: %w", i18n.T("detectar privilégios remotos"), probeErr)}
+	mode := m.effectiveVersionReport()
+	if resumeID > 0 || mode == core.VersionReportNone {
+		m.screen = screenProgress
+		runCmd := func() tea.Msg {
+			if prepErr := prepareRunConfig(ctx, &cfg); prepErr != nil {
+				return pipelineDoneMsg{err: prepErr}
 			}
-			if isRoot {
-				cfg.UseSudo = false
-				cfg.SudoPassword = ""
-			} else if !cfg.UseSudo {
-				return pipelineDoneMsg{err: errors.New(i18n.T("usuário remoto não é root; habilite “Usar sudo” e informe a senha da conta"))}
+			svc, createErr := app.New(cfg)
+			if createErr != nil {
+				return pipelineDoneMsg{err: createErr}
 			}
+			defer svc.Close()
+			var result *core.PipelineResult
+			if resumeID > 0 {
+				result, createErr = svc.Resume(ctx, resumeID)
+			} else {
+				result, createErr = svc.Run(ctx)
+			}
+			return pipelineDoneMsg{result: result, err: createErr}
+		}
+		return m, runCmd
+	}
+
+	// Version collection is enabled: resolve candidate versions and compare
+	// them with the destination before downloading anything.
+	m.screen = screenPackageDiff
+	m.previewLoading = true
+	m.progressText = i18n.T("Coletando versões instaladas e candidatas...")
+	previewCmd := func() tea.Msg {
+		if prepErr := prepareRunConfig(ctx, &cfg); prepErr != nil {
+			return previewDoneMsg{err: prepErr}
 		}
 		svc, createErr := app.New(cfg)
 		if createErr != nil {
-			return pipelineDoneMsg{err: createErr}
+			return previewDoneMsg{err: createErr}
 		}
-		defer svc.Close()
-		var result *core.PipelineResult
-		if resumeID > 0 {
-			result, createErr = svc.Resume(ctx, resumeID)
-		} else {
-			result, createErr = svc.Run(ctx)
+		preview, previewErr := svc.PreviewPackageDiff(ctx)
+		if previewErr != nil {
+			_ = svc.Close()
+			return previewDoneMsg{err: previewErr}
 		}
-		return pipelineDoneMsg{result: result, err: createErr}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			_ = svc.Close()
+			return previewDoneMsg{err: ctxErr}
+		}
+		return previewDoneMsg{svc: svc, preview: preview}
 	}
-	return m, runCmd
+	return m, previewCmd
+}
+
+// prepareRunConfig resolves remote privileges before creating the service. It
+// runs in the command goroutine for both the preview and the pipeline flows.
+func prepareRunConfig(ctx context.Context, cfg *app.Config) error {
+	if !cfg.Install || cfg.SSH.Host == "" {
+		return nil
+	}
+	isRoot, probeErr := app.DetectRoot(ctx, cfg.SSH)
+	if probeErr != nil {
+		return fmt.Errorf("%s: %w", i18n.T("detectar privilégios remotos"), probeErr)
+	}
+	if isRoot {
+		cfg.UseSudo = false
+		cfg.SudoPassword = ""
+		return nil
+	}
+	if !cfg.UseSudo {
+		return errors.New(i18n.T("usuário remoto não é root; habilite “Usar sudo” e informe a senha da conta"))
+	}
+	return nil
+}
+
+// runPreviewedCmd runs the pipeline from step 2 using the session created by
+// the preview. It owns the service and closes it when the pipeline finishes.
+func (m *Model) runPreviewedCmd(svc *app.Service, preview *app.PackagePreview) tea.Cmd {
+	ctx := m.runCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reporter := m.reporter
+	return func() tea.Msg {
+		if svc == nil {
+			return pipelineDoneMsg{err: errors.New(i18n.T("pré-visualização indisponível"))}
+		}
+		var result *core.PipelineResult
+		var err error
+		if preview != nil {
+			result, err = svc.RunPreviewed(ctx, preview, reporter)
+		} else {
+			result, err = svc.Run(ctx)
+		}
+		_ = svc.Close()
+		return pipelineDoneMsg{result: result, err: err}
+	}
+}
+
+func (m *Model) updatePackageDiff(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.previewLoading {
+		return m, nil
+	}
+	switch msg.String() {
+	case "y", "enter":
+		svc := m.previewSvc
+		preview := m.preview
+		m.previewSvc = nil
+		m.preview = nil
+		if svc == nil || preview == nil {
+			m.errorMsg = i18n.T("pré-visualização indisponível")
+			m.screen = screenPackages
+			m.buildForm()
+			return m, nil
+		}
+		m.running = true
+		m.progress = 0
+		m.progressText = i18n.T("Iniciando")
+		m.screen = screenProgress
+		return m, m.runPreviewedCmd(svc, preview)
+	case "n", "esc":
+		return m.abortPreview()
+	}
+	return m, nil
+}
+
+// abortPreview persists the refusal and ends the preview session without
+// installing anything. The report keeps the collected versions and decision.
+func (m *Model) abortPreview() (tea.Model, tea.Cmd) {
+	svc := m.previewSvc
+	preview := m.preview
+	m.previewSvc = nil
+	m.preview = nil
+	m.previewLoading = false
+	m.running = false
+	if m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+	}
+	m.runCtx = nil
+	if svc == nil || preview == nil {
+		m.errorMsg = i18n.T("pré-visualização indisponível")
+		m.screen = screenPackages
+		m.buildForm()
+		return m, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	m.sessionID = preview.SessionID
+	abortErr := svc.AbortPreview(ctx, preview)
+	_ = svc.Close()
+	if abortErr != nil {
+		m.result = nil
+		m.runErr = abortErr
+		m.notice = ""
+		m.screen = screenResult
+		return m, nil
+	}
+	m.result = nil
+	m.runErr = nil
+	m.notice = i18n.T("Sessão #%d abortada: nenhum pacote foi instalado. O relatório mantém as versões coletadas e a decisão.", preview.SessionID)
+	m.screen = screenResult
+	return m, nil
 }
 
 type targetDetectMsg struct {
@@ -142,6 +281,7 @@ func (m *Model) buildConfig() (app.Config, error) {
 		RemoteDir:       strings.TrimSpace(m.remoteDir.Value()),
 		Repositories:    repositories,
 		ForceReinstall:  m.force,
+		VersionReport:   m.effectiveVersionReport(),
 		StageTimeout:    m.settings.StageTimeout(),
 		Reporter:        m.reporter,
 		Install:         install,
@@ -223,6 +363,7 @@ func (m *Model) updateResult(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		m.result = nil
 		m.runErr = nil
+		m.notice = ""
 		m.resumeID = 0
 		m.detectedText = ""
 		m.detectedHost = ""

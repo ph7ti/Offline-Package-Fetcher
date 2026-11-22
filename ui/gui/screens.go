@@ -267,9 +267,11 @@ func (u *UI) showPackages() {
 		u.sudoCheck.SetChecked(false)
 		u.sudoCheck.Disable()
 		u.sudoPassword.Disable()
+		u.syncVersionReportSelect()
 	} else {
 		u.installCheck.Enable()
 		u.sudoCheck.Enable()
+		u.syncVersionReportSelect()
 	}
 	u.pkgEntry.SetMinRowsVisible(6)
 	resumeObjects := make([]fyne.CanvasObject, 0, 2)
@@ -291,6 +293,10 @@ func (u *UI) showPackages() {
 		u.optionalCheck,
 		vSpace(4),
 		u.forceCheck,
+		vSpace(8),
+		u.muted(i18n.T("Coletar versões do pacote"), theme.SizeNameSubHeadingText),
+		u.versionReportGroup,
+		u.muted(i18n.T("Todos: inventário completo; Default: pacotes afetados e dependências; Nenhum: sem coleta e sem tela Package diff."), theme.SizeNameCaptionText),
 	))
 	notSSH := u.banner(i18n.T("Sem SSH, os pacotes serão apenas baixados e validados localmente."), toneInfo)
 	notSSH.Hide()
@@ -307,7 +313,7 @@ func (u *UI) showPackages() {
 	}
 	u.sudoCheck.OnChanged = syncSudo
 	syncSudo(u.sudoCheck.Checked)
-	note := u.banner(i18n.T("Use “Forçar reinstalação” para ignorar pacotes já presentes. O manifesto SHA256SUMS é gerado antes do envio."), toneInfo)
+	note := u.banner(i18n.T("Use “Forçar reinstalação” para ignorar pacotes já presentes. A coleta de versões exige SSH e acontece antes do download; o manifesto SHA256SUMS é gerado antes do envio."), toneInfo)
 	content := container.NewVBox(
 		container.NewVBox(resumeObjects...),
 		packageCard, vSpace(14),

@@ -80,6 +80,92 @@ func (r *ApkResolver) ListDependencies(ctx context.Context, pkg string, _ bool) 
 	return deps, nil
 }
 
+// ListCandidates reads candidate versions from an apk fetch simulation.
+func (r *ApkResolver) ListCandidates(ctx context.Context, pkgs []string, _ bool) ([]core.CandidatePackage, error) {
+	if r.exec == nil {
+		return nil, errors.New("executor do ambiente isolado não configurado")
+	}
+	if len(pkgs) == 0 {
+		return nil, errors.New("nenhum pacote para resolver versões APK")
+	}
+	for _, pkg := range pkgs {
+		if !apkPackagePattern.MatchString(pkg) {
+			return nil, fmt.Errorf("nome de pacote APK inválido: %q", pkg)
+		}
+	}
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
+	cacheDir := r.workDir + "/apk-cache"
+	fetchCmd := []string{"apk", "--cache-dir", cacheDir, "fetch", "--simulate", "--recursive", "--arch=" + r.arch}
+	if r.allowUntrusted {
+		fetchCmd = append(fetchCmd, "--allow-untrusted")
+	}
+	fetchCmd = append(fetchCmd, pkgs...)
+	commands := [][]string{
+		{"mkdir", "-p", cacheDir},
+		{"apk", "--cache-dir", cacheDir, "update"},
+		fetchCmd,
+	}
+	var stdout string
+	for _, cmd := range commands {
+		output, err := r.exec.Exec(ctx, cmd)
+		if err != nil {
+			return nil, fmt.Errorf("resolver versões candidatas APK: %w", err)
+		}
+		stdout = output
+	}
+	versions, err := parseApkCandidates(stdout)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]core.CandidatePackage, 0, len(pkgs))
+	for _, pkg := range pkgs {
+		if version := versions[pkg]; version != "" {
+			candidates = append(candidates, core.CandidatePackage{Name: pkg, Version: version})
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, errors.New("nenhuma versão candidata APK encontrada")
+	}
+	return candidates, nil
+}
+
+func parseApkCandidates(output string) (map[string]string, error) {
+	versions := make(map[string]string)
+	for _, raw := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(raw)
+		const prefix = "Downloading "
+		idx := strings.Index(line, prefix)
+		if idx < 0 {
+			continue
+		}
+		nvr := strings.TrimSuffix(strings.TrimSpace(line[idx+len(prefix):]), ".apk")
+		name, version, err := apkNVR(nvr)
+		if err != nil {
+			continue
+		}
+		versions[name] = version
+	}
+	if len(versions) == 0 {
+		return nil, errors.New("nenhuma versão candidata APK retornada")
+	}
+	return versions, nil
+}
+
+func apkNVR(nvr string) (string, string, error) {
+	revision := strings.LastIndex(nvr, "-r")
+	if revision <= 0 {
+		return "", "", fmt.Errorf("versão APK inválida: %q", nvr)
+	}
+	withoutRevision := nvr[:revision]
+	versionIdx := strings.LastIndex(withoutRevision, "-")
+	if versionIdx <= 0 {
+		return "", "", fmt.Errorf("nome/versão APK inválido: %q", nvr)
+	}
+	return withoutRevision[:versionIdx], withoutRevision[versionIdx+1:] + "-r" + nvr[revision+2:], nil
+}
+
 func (r *ApkResolver) DownloadCommands(pkgs []string) [][]string {
 	if len(pkgs) == 0 {
 		return nil

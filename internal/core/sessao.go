@@ -79,6 +79,7 @@ type Sessao struct {
 	AmbienteID   string
 	ConfigJSON   string
 	HostInfoJSON string
+	PreviewJSON  string
 	Arquivada    bool
 }
 
@@ -172,6 +173,10 @@ type Repository interface {
 }
 
 // CheckpointRepository persists execution state for progress and resume.
+type PreviewRepository interface {
+	AtualizarSessaoPreview(ctx context.Context, id int64, previewJSON string) error
+}
+
 type CheckpointRepository interface {
 	ReabrirSessao(ctx context.Context, id int64) error
 	AtualizarSessaoExecucao(ctx context.Context, id int64, outputDir, remoteDir, imagem, wslDistro, ambienteID, configJSON string) error

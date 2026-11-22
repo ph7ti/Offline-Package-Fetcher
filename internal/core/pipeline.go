@@ -34,6 +34,7 @@ type PipelineConfig struct {
 	Reporter       PipelineReporter
 	EventSink      EventSink
 	ForceReinstall bool
+	UpgradeRoots   map[string]bool
 	Inspector      PackageInspector
 
 	// Transfer is optional. When set, steps 2, 8 and 9 run.
@@ -273,6 +274,9 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		alreadyInstalled = installed
 		if !cfg.ForceReinstall {
 			for _, p := range installed {
+				if cfg.UpgradeRoots[p.Name] {
+					continue
+				}
 				if addErr := cfg.Repo.AdicionarPacote(ctx, &Pacote{
 					SessaoID: s.ID, Nome: p.Name, Versao: p.Version,
 					Arquitetura: p.Arch, Status: PacoteJaInstalado,
@@ -288,7 +292,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 			}
 			filtered := roots[:0]
 			for _, root := range roots {
-				if _, ok := installedSet[root]; !ok {
+				if _, ok := installedSet[root]; !ok || cfg.UpgradeRoots[root] {
 					filtered = append(filtered, root)
 				}
 			}

@@ -42,44 +42,52 @@ func (u *UI) startRun() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	u.cancel = cancel
+	u.runCtx = ctx
 	u.running = true
 	u.result = nil
 	u.runErr = nil
-	u.showProgress()
+	u.preview = nil
+	u.previewSvc = nil
 
 	resumeID := u.resumeID
-	go func() {
-		if cfg.Install && cfg.SSH.Host != "" {
-			isRoot, probeErr := app.DetectRoot(ctx, cfg.SSH)
-			if probeErr != nil {
-				fyne.Do(func() { u.finishRun(nil, fmt.Errorf("%s: %w", i18n.T("detectar privilégios remotos"), probeErr)) })
+	if resumeID > 0 || cfg.VersionReport == core.VersionReportNone {
+		u.showProgress()
+		go func() {
+			if cfg.Install && cfg.SSH.Host != "" {
+				isRoot, probeErr := app.DetectRoot(ctx, cfg.SSH)
+				if probeErr != nil {
+					fyne.Do(func() { u.finishRun(nil, fmt.Errorf("%s: %w", i18n.T("detectar privilégios remotos"), probeErr)) })
+					return
+				}
+				if isRoot {
+					cfg.UseSudo = false
+					cfg.SudoPassword = ""
+				} else if !cfg.UseSudo {
+					fyne.Do(func() {
+						u.finishRun(nil, errors.New(i18n.T("usuário remoto não é root; habilite “Usar sudo” e informe a senha da conta")))
+					})
+					return
+				}
+			}
+			svc, createErr := app.New(cfg)
+			if createErr != nil {
+				fyne.Do(func() { u.finishRun(nil, createErr) })
 				return
 			}
-			if isRoot {
-				cfg.UseSudo = false
-				cfg.SudoPassword = ""
-			} else if !cfg.UseSudo {
-				fyne.Do(func() {
-					u.finishRun(nil, errors.New(i18n.T("usuário remoto não é root; habilite “Usar sudo” e informe a senha da conta")))
-				})
-				return
+			defer svc.Close()
+			var result *core.PipelineResult
+			if resumeID > 0 {
+				result, createErr = svc.Resume(ctx, resumeID)
+			} else {
+				result, createErr = svc.Run(ctx)
 			}
-		}
-		svc, createErr := app.New(cfg)
-		if createErr != nil {
-			fyne.Do(func() { u.finishRun(nil, createErr) })
-			return
-		}
-		defer svc.Close()
+			fyne.Do(func() { u.finishRun(result, createErr) })
+		}()
+		return
+	}
 
-		var result *core.PipelineResult
-		if resumeID > 0 {
-			result, createErr = svc.Resume(ctx, resumeID)
-		} else {
-			result, createErr = svc.Run(ctx)
-		}
-		fyne.Do(func() { u.finishRun(result, createErr) })
-	}()
+	u.showPackageDiffLoading()
+	go u.runPackagePreview(ctx, cfg)
 }
 
 func (u *UI) buildConfig(packages []string) (app.Config, error) {
@@ -106,6 +114,11 @@ func (u *UI) buildConfig(packages []string) (app.Config, error) {
 		return app.Config{}, errors.New(i18n.T("sudo exige a senha da conta"))
 	}
 
+	versionReport := u.selectedVersionReportMode()
+	if !u.sshEnabled.Checked {
+		versionReport = core.VersionReportNone
+	}
+
 	cfg := app.Config{
 		StorePath:       strings.TrimSpace(u.dbEntry.Text),
 		OutputBaseDir:   strings.TrimSpace(u.outEntry.Text),
@@ -122,6 +135,7 @@ func (u *UI) buildConfig(packages []string) (app.Config, error) {
 		RemoteDir:       strings.TrimSpace(u.remoteDir.Text),
 		Repositories:    repositories,
 		ForceReinstall:  u.forceCheck.Checked,
+		VersionReport:   versionReport,
 		StageTimeout:    u.settings.StageTimeout(),
 		Reporter:        u.reporter,
 		Install:         install,
@@ -252,6 +266,7 @@ func (u *UI) detectTarget() {
 func (u *UI) finishRun(result *core.PipelineResult, err error) {
 	u.running = false
 	u.cancel = nil
+	u.runCtx = nil
 	u.result = result
 	u.runErr = err
 	if result != nil {

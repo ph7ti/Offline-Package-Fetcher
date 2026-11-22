@@ -1,7 +1,7 @@
 param(
     [ValidateSet('amd64','arm64')][string]$Arch = 'amd64',
     [string]$PayloadRoot = 'dist\installer-payload',
-    [string]$Version = '0.2.8',
+    [string]$Version = '0.3.0',
     [string]$OutDir = 'dist\installers',
     [ValidateSet('cli')][string]$Edition = 'cli'
 )

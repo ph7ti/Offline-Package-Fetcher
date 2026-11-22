@@ -13,7 +13,7 @@
 
 **Download Linux packages and their complete dependency closure for isolated environments — and, when it makes sense, ship them over SSH/SFTP and install them on the target.**
 
-Version **0.2.8** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
+Version **0.3.0** (development) · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
 
 ---
 
@@ -60,6 +60,7 @@ A session in short:
 - **13-stage pipeline** with checkpointing, safe resume, cancellation (`abortada`) and guaranteed cleanup.
 - **SHA-256 integrity at three points** (P1 inside the environment, P2 in the host manifest, P3 on the target) with a single `SHA256SUMS` per session.
 - **Multiple packages per session**, with a remote pre-check for packages already installed and `--force-reinstall` when needed.
+- **Package diff (v0.3.0)**: optionally collect installed versions (`all`, `default` or `none`) and pause before the pipeline when packages would be upgraded, showing the version jump and asking whether to proceed. The inventory, diff and decision are saved in the report.
 - **SSH/SFTP** with strict host-key verification, key or password authentication and a **jump-host chain** with independent credentials per hop.
 - **Remote installation** only after explicit confirmation, with `sudo` using the SSH account password sent **through stdin only**.
 - **Additional repositories** (APT/RPM/APK) used only inside the isolated environment, with GPG/TLS verified by default.
@@ -84,7 +85,7 @@ Fetch methods:
 
 Recognized architectures: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` and `i386`/`i686` (normalized per family: `amd64` for APT, `x86_64` for RPM, and so on).
 
-Known limits in v0.2.8:
+Known limits in v0.3.0:
 
 - **macOS** is a secondary platform and requires Docker to download packages.
 - **WSL** covers Ubuntu/Debian (APT) only; RPM/APK families require Docker.
@@ -280,7 +281,7 @@ The CLI/TUI default output directory is `./opf-output`, the default database is 
 
 ## GUI and TUI
 
-- **GUI** (`opf-gui`): dashboard with counters and recent sessions, session configuration, SSH connection with target detection and jump hosts, packages and pre-check, execution with the 13 stages and a live log, installation confirmation, result, rendered report, history and global settings. Light/dark theme toggle. The OPF icon is embedded in every Windows executable and appears in the taskbar.
+- **GUI** (`opf-gui`): dashboard with counters and recent sessions, session configuration, SSH connection with target detection and jump hosts, packages and pre-check with the **Coletar versões do pacote** selector, **Package diff** confirmation, execution with the 13 stages and a live log, installation confirmation, result, rendered report, history and global settings. Light/dark theme toggle. The OPF icon is embedded in every Windows executable and appears in the taskbar.
 - **TUI** (`opf-tui`): the same flow in a terminal, with shortcuts such as `ctrl+d` (detect target), `ctrl+t` (test SSH), `ctrl+j` (jump hosts), `ctrl+r` (repositories), `J`/`M` (export report) and `S` (send to Syslog).
 
 The complete walkthrough — screen by screen and key by key — is in the [user manual](docs/MANUAL.md#6-gui-walkthrough).
@@ -429,6 +430,6 @@ OPF was developed with **heavy AI assistance** — code generation, tests, revie
 
 ## Version
 
-**Version 0.2.8** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
+**Version 0.3.0** — in development; the current published release is **0.2.8**. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
 
 **English** | [Português (BR)](docs/README.pt-BR.md)

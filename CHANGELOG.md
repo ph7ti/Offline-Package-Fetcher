@@ -4,6 +4,38 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-22
+
+Package diff and installed-version reports.
+
+### Added
+
+- **Package diff** screen between **Packages and Pre-check** and **Pipeline**.
+  It is shown only when at least one requested package or dependency will be
+  upgraded, not for brand-new packages.
+- **Coletar versões do pacote** selector with `Todos` (full installed
+  inventory), `Default` (affected packages and dependencies) and `Nenhum`
+  (no collection and no Package diff). Collection requires SSH and runs before
+  any package download.
+- Candidate versions are resolved from repository metadata (`apt-cache policy`,
+  `dnf repoquery`/`repoquery`, `apk fetch --simulate`) without downloading the
+  packages; installed versions come from the SSH destination.
+- **CLI** flag `--version-report all|default|none`; when upgrades exist and
+  `--install` is requested, the CLI prints the jump and asks for confirmation.
+- Reports now include the installed-package inventory, the **Package diff**
+  table, a readable `De pacote X versão A para versão B` line per upgrade and
+  the user decision (`approved` or `aborted`). An aborted decision keeps the
+  collected versions in the report and finalizes the session as aborted.
+- Pipeline pre-check now compares versions: a package already installed is kept
+  for download/install when a newer candidate exists.
+
+### Changed
+
+- The GUI, TUI and CLI default to `default` collection when SSH is configured;
+  without SSH the mode is forced to `none`.
+- New sessions persist the version preview in the `preview_json` session column
+  (SQLite migration is automatic).
+
 ## [0.2.8] - 2026-11-21
 
 Installer-only releases and two Windows installer editions.

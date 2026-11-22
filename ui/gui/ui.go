@@ -42,6 +42,9 @@ type UI struct {
 	result          *core.PipelineResult
 	runErr          error
 	reporter        *guiReporter
+	preview         *opfapp.PackagePreview
+	previewSvc      *opfapp.Service
+	runCtx          context.Context
 
 	stepLabels    []*widget.Label
 	progressBar   *widget.ProgressBar
@@ -56,15 +59,16 @@ type UI struct {
 	detectedJumps string
 	manualTarget  bool
 
-	targetSelect  *widget.Select
-	versionEntry  *widget.Entry
-	archEntry     *widget.Entry
-	methodSelect  *widget.Select
-	imageEntry    *widget.Entry
-	wslEntry      *widget.Entry
-	optionalCheck *widget.Check
-	forceCheck    *widget.Check
-	pkgEntry      *widget.Entry
+	targetSelect       *widget.Select
+	versionEntry       *widget.Entry
+	archEntry          *widget.Entry
+	methodSelect       *widget.Select
+	imageEntry         *widget.Entry
+	wslEntry           *widget.Entry
+	optionalCheck      *widget.Check
+	forceCheck         *widget.Check
+	versionReportGroup *widget.RadioGroup
+	pkgEntry           *widget.Entry
 
 	sshEnabled  *widget.Check
 	sshHost     *widget.Entry
@@ -107,6 +111,7 @@ func Run() error {
 	window.CenterOnScreen()
 	ui := newUI(a, window)
 	window.SetCloseIntercept(func() {
+		ui.abortPackageDiffForClose()
 		if ui.running && ui.cancel != nil {
 			ui.cancel()
 		}
@@ -183,6 +188,8 @@ func newUI(a fyne.App, window fyne.Window) *UI {
 	ui.wslEntry.SetPlaceHolder(i18n.T("ex.: ubuntu-24.04"))
 	ui.optionalCheck = widget.NewCheck(i18n.T("Incluir dependências opcionais"), nil)
 	ui.forceCheck = widget.NewCheck(i18n.T("Forçar reinstalação (ignorar pré-check)"), nil)
+	ui.versionReportGroup = widget.NewRadioGroup(versionReportOptions(), nil)
+	ui.versionReportGroup.SetSelected("Default")
 	ui.pkgEntry = widget.NewMultiLineEntry()
 	ui.pkgEntry.SetPlaceHolder(i18n.T("Um pacote por linha ou separado por vírgula. Ex.: vim, curl"))
 	ui.pkgEntry.SetMinRowsVisible(4)

@@ -48,6 +48,7 @@ type Relatorio struct {
 	Solicitados   []core.PacoteSolicitado `json:"pacotes_solicitados"`
 	Pacotes       []RelatorioPacote       `json:"pacotes"`
 	Eventos       []core.Evento           `json:"eventos"`
+	Preview       core.PackagePreviewData `json:"preview"`
 	LocalDestino  string                  `json:"local_destino"`
 	RemoteDestino string                  `json:"remote_destino"`
 	GeradoEm      time.Time               `json:"gerado_em"`
@@ -84,9 +85,13 @@ func GerarRelatorio(ctx context.Context, repo core.Repository, sessaoID int64) (
 	}); ok {
 		solicitados, _ = repo.ListarPacotesSolicitados(ctx, sessaoID)
 	}
+	var preview core.PackagePreviewData
+	if sessao.PreviewJSON != "" {
+		_ = json.Unmarshal([]byte(sessao.PreviewJSON), &preview)
+	}
 	return &Relatorio{
 		Sessao: *sessao, HostInfo: hostInfo, Solicitados: solicitados,
-		Pacotes: relatorioPacotes, Eventos: eventos,
+		Pacotes: relatorioPacotes, Eventos: eventos, Preview: preview,
 		LocalDestino: sessao.OutputDir, RemoteDestino: sessao.RemoteDir,
 		GeradoEm: time.Now().UTC(),
 	}, nil
@@ -153,6 +158,45 @@ func (r *Relatorio) Markdown() string {
 			escapeMarkdown(p.Nome), escapeMarkdown(p.Papel), escapeMarkdown(p.Versao),
 			escapeMarkdown(p.VersaoAnterior), escapeMarkdown(p.Arquitetura),
 			escapeMarkdown(string(p.Status)), escapeMarkdown(p.SHA256))
+	}
+
+	if len(r.Preview.Inventory) > 0 {
+		b.WriteString("\n" + i18n.T("## Pacotes instalados no destino") + "\n\n")
+		b.WriteString(i18n.T("| Pacote | Versão | Arquitetura |") + "\n|---|---|---|\n")
+		for _, pkg := range r.Preview.Inventory {
+			fmt.Fprintf(&b, "| %s | %s | %s |\n",
+				escapeMarkdown(pkg.Name), escapeMarkdown(pkg.Version), escapeMarkdown(pkg.Arch))
+		}
+	}
+	if r.Preview.Mode != "" {
+		b.WriteString("\n" + i18n.T("## Package diff") + "\n\n")
+		if len(r.Preview.Diff) == 0 {
+			b.WriteString(i18n.T("- Nenhuma atualização de pacote foi detectada.") + "\n")
+		} else {
+			b.WriteString(i18n.T("| Pacote | De | Para | Salto | Papel |") + "\n|---|---|---|---|---|\n")
+			for _, diff := range r.Preview.Diff {
+				role := i18n.T("principal")
+				if diff.IsDependency {
+					role = i18n.T("dependência")
+				}
+				fmt.Fprintf(&b, "| %s | %s | %s | %s → %s | %s |\n",
+					escapeMarkdown(diff.Name), escapeMarkdown(diff.From), escapeMarkdown(diff.To),
+					escapeMarkdown(diff.From), escapeMarkdown(diff.To), escapeMarkdown(role))
+			}
+			b.WriteString("\n")
+			for _, diff := range r.Preview.Diff {
+				fmt.Fprintf(&b, i18n.T("- De pacote %s versão %s para versão %s (salto %s → %s).")+"\n",
+					escapeMarkdown(diff.Name), escapeMarkdown(diff.From), escapeMarkdown(diff.To),
+					escapeMarkdown(diff.From), escapeMarkdown(diff.To))
+			}
+		}
+		if r.Preview.Decision != "" {
+			decision := i18n.T("aprovado")
+			if r.Preview.Decision == "aborted" {
+				decision = i18n.T("recusado — sessão abortada")
+			}
+			fmt.Fprintf(&b, "\n%s: **%s**\n", i18n.T("Decisão do usuário"), decision)
+		}
 	}
 
 	b.WriteString("\n" + i18n.T("## Eventos") + "\n\n")

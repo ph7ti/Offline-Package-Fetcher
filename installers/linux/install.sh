@@ -74,7 +74,7 @@ for arg in "$@"; do
 	esac
 done
 
-box "Offline Package Fetcher (OPF) - Installer" "Version 0.2.8" "" \
+box "Offline Package Fetcher (OPF) - Installer" "Version 0.3.0" "" \
 	"This wizard installs OPF on your computer." \
 	"You can change the folder and choose what to install."
 

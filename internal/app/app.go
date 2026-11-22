@@ -38,6 +38,7 @@ type Config struct {
 	RemoteDir       string
 	Repositories    []core.PackageRepository
 	ForceReinstall  bool
+	VersionReport   core.VersionReportMode
 	StageTimeout    time.Duration
 	Logger          *slog.Logger
 	Reporter        core.PipelineReporter
@@ -95,6 +96,16 @@ func New(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("repositórios adicionais: %w", err)
 	}
 	cfg.FetchMethod = resolveFetchMethod(cfg.FetchMethod, family)
+	if cfg.VersionReport == "" {
+		if cfg.SSH.Host == "" {
+			cfg.VersionReport = core.VersionReportNone
+		} else {
+			cfg.VersionReport = core.VersionReportDefault
+		}
+	}
+	if cfg.VersionReport != core.VersionReportNone && cfg.SSH.Host == "" {
+		return nil, errors.New("coleta de versões exige SSH configurado")
+	}
 	if cfg.FetchMethod == "wsl" && family != "apt" {
 		return nil, errors.New("WSL suporta apenas famílias APT")
 	}
@@ -300,6 +311,7 @@ func (s *Service) configJSON() string {
 		"target_os":        s.cfg.TargetOS,
 		"target_version":   s.cfg.TargetVersion,
 		"target_arch":      s.cfg.TargetArch,
+		"version_report":   string(s.cfg.VersionReport),
 		"packages":         s.cfg.Packages,
 		"include_optional": s.cfg.IncludeOptional,
 		"fetch_method":     s.cfg.FetchMethod,

@@ -132,6 +132,7 @@ func run(args []string) error {
 		return nil
 	})
 	forceReinstall := fs.Bool("force-reinstall", false, i18n.T("ignora o pré-check e reinstala pacotes já presentes"))
+	versionReport := fs.String("version-report", "", i18n.T("coleta de versões instaladas: all, default ou none"))
 	imageOverride := fs.String("image", "", i18n.T("imagem Docker alternativa (ex.: opf/centos-7:f3)"))
 	fetchMethod := fs.String("fetch-method", "docker", i18n.T("método de fetch: docker ou wsl"))
 	wslDistro := fs.String("wsl-distro", "", i18n.T("distro WSL registrada (padrão derivado de --target)"))
@@ -223,6 +224,16 @@ func run(args []string) error {
 	}
 	if *syslogEnabled && *syslogHost == "" {
 		return errors.New(i18n.T("--syslog exige --syslog-host"))
+	}
+	reportMode, modeErr := core.ParseVersionReportMode(*versionReport)
+	if modeErr != nil {
+		return modeErr
+	}
+	if *versionReport == "" && *sshHost == "" {
+		reportMode = core.VersionReportNone
+	}
+	if reportMode != core.VersionReportNone && *sshHost == "" {
+		return errors.New(i18n.T("--version-report all/default exige --ssh-host"))
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -468,11 +479,62 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	var preview *opfapp.PackagePreview
+	resumeFrom := 0
+	if reportMode != core.VersionReportNone {
+		previewService, previewErr := opfapp.New(opfapp.Config{
+			StorePath: *dbPath, OutputBaseDir: *outDir, TempDir: *tempDir,
+			TargetOS: targetOS, TargetVersion: targetVersion, TargetArch: strings.ToLower(*arch),
+			Packages: packages, IncludeOptional: *withOptional, FetchMethod: method,
+			Image: *imageOverride, WSLDistro: *wslDistro, SSH: sshConfig, RemoteDir: *remoteDir,
+			Repositories: repositories, ForceReinstall: *forceReinstall, Logger: logger,
+			Install: *installAfter, UseSudo: *useSudo, SudoPassword: sshPasswordValue,
+			ConfirmInstall: confirmInstall, VersionReport: reportMode,
+			SyslogEnabled: *syslogEnabled, SyslogHost: *syslogHost, SyslogPort: *syslogPort,
+			SyslogProto: *syslogProto, SyslogTag: *syslogTag,
+		})
+		if previewErr != nil {
+			return previewErr
+		}
+		preview, previewErr = previewService.PreviewPackageDiff(ctx)
+		if previewErr != nil {
+			_ = previewService.Close()
+			return previewErr
+		}
+		if preview != nil {
+			printPackagePreview(preview)
+			if len(preview.Data.Diff) > 0 && *installAfter && !*assumeYes {
+				if !confirmPackageDiff(os.Stdin, os.Stdout, len(preview.Data.Diff)) {
+					if abortErr := previewService.AbortPreview(ctx, preview); abortErr != nil {
+						_ = previewService.Close()
+						return abortErr
+					}
+					fmt.Println(i18n.T("instalação recusada; sessão abortada (relatório disponível)"))
+					_ = previewService.Close()
+					if *exportJSON != "" || *exportMarkdown != "" {
+						if reportErr := exportSessionReport(ctx, repo, preview.SessionID, *exportJSON, *exportMarkdown); reportErr != nil {
+							return reportErr
+						}
+					}
+					return nil
+				}
+			}
+			resumeFrom = 2
+		}
+		_ = previewService.Close()
+	}
+
+	sessaoPipeline := sessao
+	if preview != nil {
+		sessaoPipeline = &core.Sessao{ID: preview.SessionID}
+	}
 	result, err := core.ExecutarPipeline(ctx, core.PipelineConfig{
 		Repo:           repo,
 		Fetcher:        packageFetcher,
 		Packages:       packages,
 		ForceReinstall: *forceReinstall,
+		UpgradeRoots:   previewUpgrades(preview),
+		ResumeFrom:     resumeFrom,
 		OutputBaseDir:  *outDir,
 		Logger:         logger,
 		Transfer:       transferManager,
@@ -484,7 +546,7 @@ func run(args []string) error {
 		EventSink:      syslogSink,
 		Image:          *imageOverride,
 		WSLDistro:      *wslDistro,
-	}, sessao)
+	}, sessaoPipeline)
 	if err != nil {
 		return err
 	}
@@ -823,4 +885,67 @@ func parsePort(value string) (int, error) {
 		return 0, errors.New(i18n.T("porta do jump fora do intervalo: %d", port))
 	}
 	return port, nil
+}
+
+func printPackagePreview(preview *opfapp.PackagePreview) {
+	if preview == nil {
+		return
+	}
+	if len(preview.Data.Inventory) > 0 {
+		fmt.Println(i18n.T("Pacotes instalados coletados: %d", len(preview.Data.Inventory)))
+	}
+	if len(preview.Data.Diff) == 0 {
+		fmt.Println(i18n.T("Nenhuma atualização de pacote detectada."))
+		return
+	}
+	fmt.Println(i18n.T("Pacotes que serão atualizados:"))
+	for _, diff := range preview.Data.Diff {
+		role := i18n.T("principal")
+		if diff.IsDependency {
+			role = i18n.T("dependência")
+		}
+		fmt.Printf("  %s: %s → %s (%s)\n", diff.Name, diff.From, diff.To, role)
+	}
+}
+
+func previewUpgrades(preview *opfapp.PackagePreview) map[string]bool {
+	if preview == nil {
+		return nil
+	}
+	return preview.Upgrades
+}
+
+func exportSessionReport(ctx context.Context, repo *store.Store, sessionID int64, jsonPath, mdPath string) error {
+	relatorio, err := observability.GerarRelatorio(ctx, repo, sessionID)
+	if err != nil {
+		return err
+	}
+	if jsonPath != "" {
+		if err := observability.SalvarJSON(jsonPath, relatorio); err != nil {
+			return err
+		}
+		fmt.Println(i18n.T("relatório JSON: %s", jsonPath))
+	}
+	if mdPath != "" {
+		if err := observability.SalvarMarkdown(mdPath, relatorio); err != nil {
+			return err
+		}
+		fmt.Println(i18n.T("relatório Markdown: %s", mdPath))
+	}
+	return nil
+}
+
+func confirmPackageDiff(in io.Reader, out io.Writer, count int) bool {
+	fmt.Fprintf(out, i18n.T("%d pacote(s) serão atualizados. Prosseguir com a instalação? [s/N]: "), count)
+	reader := bufio.NewReader(in)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "s", "sim", "y", "yes":
+		return true
+	default:
+		return false
+	}
 }

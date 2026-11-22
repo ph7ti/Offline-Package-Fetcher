@@ -42,6 +42,8 @@ func (m *Model) View() string {
 		body = m.viewForm(i18n.T("Ponte SSH"), i18n.T("Cada ponte usa credenciais próprias; senhas ficam apenas em memória e nunca são persistidas. Vazio em known_hosts herda o valor do destino."))
 	case screenPackages:
 		body = m.viewForm(i18n.T("Pacotes e Pré-check"), i18n.T("Pré-check remoto automático; use Forçar reinstalação para ignorar pacotes presentes. A instalação nunca é retomada automaticamente."))
+	case screenPackageDiff:
+		body = m.viewPackageDiff()
 	case screenProgress:
 		body = m.viewProgress()
 	case screenResult:
@@ -113,7 +115,7 @@ func (m *Model) viewForm(title, description string) string {
 			if item.choiceDisplay != nil {
 				value = item.choiceDisplay(value)
 			}
-			fmt.Fprintf(&b, "%s%-28s [%s] (%s)\n", prefix, item.label, value, i18n.T("espaço alterna"))
+			fmt.Fprintf(&b, "%s%-28s [%s] (%s)\n", prefix, item.label, value, i18n.T("espaço/←→ alterna"))
 			continue
 		}
 		if item.input != nil {
@@ -141,9 +143,48 @@ func (m *Model) viewForm(title, description string) string {
 		}
 		b.WriteString("  " + i18n.T("ctrl+j gerenciar pontes") + "\n")
 	}
-	if m.screen == screenPackages && !m.sshEnabled {
-		b.WriteString("\n" + i18n.T("Modo apenas baixar: instalação e SSH estão desativados.") + "\n")
+	if m.screen == screenPackages {
+		if !m.sshEnabled {
+			b.WriteString("\n" + i18n.T("Modo apenas baixar: instalação e SSH estão desativados.") + "\n")
+			b.WriteString(i18n.T("Coleta de versões exige SSH; modo forçado para Nenhum.") + "\n")
+		} else {
+			b.WriteString("\n" + i18n.T("←→ alternam a coleta de versões do pacote") + "\n")
+		}
 	}
+	if m.errorMsg != "" {
+		b.WriteString("\n" + errorStyle.Render(m.errorMsg) + "\n")
+	}
+	return b.String()
+}
+
+func (m *Model) viewPackageDiff() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(i18n.T("Package diff")) + "\n\n")
+	if m.previewLoading {
+		b.WriteString(i18n.T("Coletando versões instaladas e candidatas...") + "\n")
+		return b.String()
+	}
+	if m.preview == nil {
+		b.WriteString(i18n.T("Sem resultado.") + "\n")
+		return b.String()
+	}
+	diff := m.preview.Data.Diff
+	if len(diff) == 0 {
+		b.WriteString(i18n.T("Nenhuma atualização de pacote detectada.") + "\n")
+		return b.String()
+	}
+	b.WriteString(i18n.T("Pacotes que serão atualizados: %d", len(diff)) + "\n\n")
+	fmt.Fprintf(&b, "%-26s %-16s %-16s %-28s %s\n",
+		i18n.T("Pacote"), i18n.T("Instalado"), i18n.T("Candidato"), i18n.T("De → Para"), i18n.T("Papel"))
+	for _, item := range diff {
+		role := i18n.T("principal")
+		if item.IsDependency {
+			role = i18n.T("dependência")
+		}
+		fmt.Fprintf(&b, "%-26s %-16s %-16s %-28s %s\n",
+			item.Name, item.From, item.To, item.From+" → "+item.To, role)
+	}
+	b.WriteString("\n" + i18n.T("[y/enter] continuar  [n/esc] abortar — abortar não instala nada e mantém a decisão no relatório") + "\n")
 	if m.errorMsg != "" {
 		b.WriteString("\n" + errorStyle.Render(m.errorMsg) + "\n")
 	}
@@ -184,7 +225,10 @@ func (m *Model) viewProgress() string {
 
 func (m *Model) viewResult() string {
 	var b strings.Builder
-	if m.runErr != nil {
+	if m.notice != "" && m.runErr == nil && m.result == nil {
+		b.WriteString(titleStyle.Render(i18n.T("Sessão abortada")) + "\n\n")
+		b.WriteString(m.notice + "\n")
+	} else if m.runErr != nil {
 		b.WriteString(errorStyle.Render(i18n.T("Sessão encerrada com erro")) + "\n\n")
 		b.WriteString(m.runErr.Error() + "\n")
 	} else if m.result != nil {
@@ -341,7 +385,9 @@ func (m *Model) helpText() string {
 	case screenJumpEdit:
 		return i18n.T("tab/↑↓ campos • espaço alternar autenticação • enter salvar • esc descartar")
 	case screenPackages:
-		return i18n.T("tab/↑↓ campos • espaço alternar • enter iniciar • esc voltar")
+		return i18n.T("tab/↑↓ campos • espaço/←→ alternar • enter iniciar • esc voltar")
+	case screenPackageDiff:
+		return i18n.T("y/enter continuar • n/esc abortar • ctrl+c sair")
 	case screenProgress:
 		return i18n.T("c cancelar • y/n confirmar instalação • ctrl+c sair")
 	case screenResult:
