@@ -13,7 +13,7 @@
 
 **Baixe pacotes Linux e o conjunto completo de dependências para ambientes isolados — e, quando fizer sentido, transfira por SSH/SFTP e instale no destino.**
 
-Versão **0.2.7** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
+Versão **0.2.8** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
 
 ---
 
@@ -84,7 +84,7 @@ Métodos de fetch:
 
 Arquiteturas reconhecidas: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` e `i386`/`i686` (normalizadas por família: `amd64` no APT, `x86_64` no RPM, entre outras).
 
-Limites conhecidos da v0.2.7:
+Limites conhecidos da v0.2.8:
 
 - **macOS** é plataforma secundária e requer Docker para baixar pacotes.
 - **WSL** atende apenas Ubuntu/Debian (APT); famílias RPM/APK exigem Docker.
@@ -137,41 +137,43 @@ O núcleo depende apenas de interfaces (`PackageFetcher`, `DependencyResolver`, 
 
 ## Instalação
 
-### A. Instaladores (recomendado)
+### A. Instaladores (único formato da release)
 
-Cada instalador oferece quatro perfis: **bundle** (GUI + TUI + CLI), **somente GUI**, **somente TUI** e **somente CLI**.
+As releases publicam **somente instaladores** — sem binários soltos de CLI/TUI/GUI.
 
-| Plataforma | Ativo do instalador |
+| Plataforma | Ativo |
 |:---|:---|
 | Linux amd64 / arm64 | `opf-installer-linux-amd64.run`, `opf-installer-linux-arm64.run` |
-| Windows amd64 / arm64 | `opf-installer-windows-amd64.zip`, `opf-installer-windows-arm64.zip` |
+| Windows amd64 / arm64, CLI/TUI | `opf-CLI-installer-windows-amd64.zip`, `opf-CLI-installer-windows-arm64.zip` |
+| Windows amd64 / arm64, GUI completa | `opf-Full-installer-windows-amd64.zip`, `opf-Full-installer-windows-arm64.zip` |
 | macOS amd64 / arm64 | `opf-installer-darwin-amd64.pkg`, `opf-installer-darwin-arm64.pkg` |
 
-- **Windows:** extraia o `.zip` e execute `opf-installer.exe`; escolha um dos quatro perfis. Ele pergunta a pasta de instalação (padrão `C:\Program Files\OPF`), adiciona ao `PATH` do usuário, cria opcionalmente o atalho no Menu Iniciar, cria o banco em `%LocalAppData%\OPF\data\opf.db` e oferece abrir a GUI/TUI. O instalador também registra um desinstalador em **Aplicativos e recursos**; ele remove os binários, a entrada do PATH, o atalho e (opcionalmente) o banco. O instalador e o payload são executáveis Go/Windows brutos (sem setup empacotado e sem `msiexec`), aceitos pelo Cortex XDR.
-- **Linux:** `chmod +x opf-installer-linux-amd64.run` e execute; escolha um perfil. Como root instala em `/usr/local/bin`; caso contrário, em `~/.local/bin`, e cria uma entrada de desktop para a GUI. Não interativo: `OPF_INSTALL_PROFILE=bundle ./opf-installer-linux-amd64.run`.
-- **macOS:** abra o `.pkg` e selecione uma opção; instala o `OPF.app` em `/Applications` e CLI/TUI em `/usr/local/bin`. O pacote não é assinado; use **Abrir** no menu de contexto se o Gatekeeper bloquear.
+- **Instalador Windows CLI/TUI:** extraia o `.zip`, execute `opf-CLI-installer.exe` e escolha **Bundle (TUI + CLI)**, **somente TUI** ou **somente CLI**. Ele pergunta a pasta (padrão `C:\Program Files\OPF`), atualiza o `PATH` do usuário, cria `%LocalAppData%\OPF\data\opf.db` e registra o desinstalador em **Aplicativos e recursos**. Instalador e payload são executáveis Go brutos, aceitos pelo Cortex XDR.
+- **Instalador Windows completo:** extraia o `.zip`, execute `opf-Full-installer-windows-amd64.exe` e use o wizard gráfico do Inno Setup com **Bundle (GUI + TUI + CLI)**, **somente GUI**, **somente TUI** ou **somente CLI**. Usa as mesmas regras de pasta/PATH/atalho/banco e oferece abrir a GUI/TUI ao final. O Inno Setup é um executável empacotado; assinatura de código ou allow-list no Cortex XDR pode ser necessária.
+- **Linux:** `chmod +x opf-installer-linux-amd64.run` e execute; escolha um perfil. Como root instala em `/usr/local/bin`; caso contrário, `~/.local/bin`, e cria entrada de desktop. Não interativo: `OPF_INSTALL_PROFILE=bundle ./opf-installer-linux-amd64.run`.
+- **macOS:** abra o `.pkg` e selecione uma opção; instala `OPF.app` em `/Applications` e CLI/TUI em `/usr/local/bin`. O pacote não é assinado; use **Abrir** no menu de contexto se o Gatekeeper bloquear.
 
-### B. Binários da release
+### B. Verificação e ativos da release
 
-1. Abra [a página da release v0.2.7](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.7).
-2. Baixe o binário da sua plataforma e o arquivo de checksums publicado junto. Cada release publica 25 ativos: CLI/TUI para linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64 e darwin/arm64; GUI para linux/amd64, linux/arm64, windows/amd64, windows/arm64, darwin/amd64 e darwin/arm64; os seis instaladores acima; e `SHA256SUMS`. Binários Linux usam UPX; executáveis Windows são publicados **brutos dentro de `.zip`** (extraia com `Expand-Archive` ou qualquer ferramenta zip); binários macOS ficam em `.tar.gz` (extraia com `tar -xzf <ativo>.tar.gz`).
-3. Confira a integridade do download:
+Cada release publica **9 ativos**: os oito instaladores acima e `SHA256SUMS`.
+
+1. Abra [a página da release v0.2.8](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.8).
+2. Baixe o instalador da sua plataforma e o `SHA256SUMS`.
+3. Verifique:
 
 ```bash
 sha256sum -c SHA256SUMS
 ```
 
 ```powershell
-$line = Get-Content .\SHA256SUMS | Where-Object { $_ -match 'opf-cli-windows-amd64\.exe\.zip$' }
+$line = Get-Content .\SHA256SUMS | Where-Object { $_ -match 'opf-Full-installer-windows-amd64\.zip$' }
 $expected = ($line -split '\s+')[0]
-if ((Get-FileHash .\opf-cli-windows-amd64.exe.zip -Algorithm SHA256).Hash -ne $expected.ToUpper()) {
+if ((Get-FileHash .\opf-Full-installer-windows-amd64.zip -Algorithm SHA256).Hash -ne $expected.ToUpper()) {
     throw 'checksum mismatch'
 }
 ```
 
-Os binários `opf-cli` e `opf-tui` são estáticos (`CGO_ENABLED=0`). O `opf-gui` depende das bibliotecas gráficas da máquina, por isso é compilado com `CGO_ENABLED=1` (`make build-gui`).
-
-Os ativos Linux de CLI/TUI e GUI recebem strip com `-trimpath -ldflags "-s -w -buildid="` e são comprimidos com UPX (`--best --lzma`): no linux/amd64, o CLI cai de 14,5 MB para 4,7 MB, a TUI de 15,4 MB para 4,9 MB e a GUI de 33,8 MB para 12,3 MB. Executáveis Windows **não usam UPX** — o Cortex XDR bloqueia PE empacotado — e são publicados brutos dentro de `.zip` (~6,1/6,4 MB para CLI/TUI e ~15,6 MB para a GUI). Binários macOS não podem ser empacotados pelo UPX e são publicados como `.tar.gz` (~5,6–6,3 MB em vez de 13,8–15,5 MB). Assinatura de código com certificado confiável é recomendada para ampliar a confiança, mas não é necessária para o Cortex XDR executar o binário Windows extraído.
+Os `.run` do Linux empacotam os binários com strip/UPX; o `.zip` Windows CLI/TUI contém `.exe` brutos; o instalador Windows completo embute o payload no executável Inno Setup; os pacotes macOS incluem o `.app` e CLI/TUI. Assinatura de código é recomendada.
 
 ### C. Compilar do código (Linux e macOS)
 
@@ -377,6 +379,6 @@ O OPF foi desenvolvido com **apoio intensivo de ferramentas de IA** — geraçã
 
 ## Versão
 
-**Versão 0.2.7** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
+**Versão 0.2.8** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
 
 [English](../README.md) | **Português (BR)**

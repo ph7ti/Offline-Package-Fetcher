@@ -1,8 +1,8 @@
 [English](MANUAL.md) | [Português (BR)](MANUAL.pt-BR.md)
 
-# OPF User Manual — v0.2.7
+# OPF User Manual — v0.2.8
 
-**Offline Package Fetcher (OPF) 0.2.7** — download Linux packages and their complete dependency closure for isolated environments, transfer them over SSH/SFTP and install them on the target after explicit confirmation.
+**Offline Package Fetcher (OPF) 0.2.8** — download Linux packages and their complete dependency closure for isolated environments, transfer them over SSH/SFTP and install them on the target after explicit confirmation.
 
 ## Table of contents
 
@@ -30,7 +30,7 @@ Out of scope:
 - configuring package repositories on the target (OPF never writes repository configuration on the destination);
 - distributing arbitrary files (OPF handles package artifacts only);
 - multi-target sessions (one session targets exactly one distribution, version and architecture);
-- repository authentication (not available in 0.2.7).
+- repository authentication (not available in 0.2.8).
 
 ## 2. Core concepts
 
@@ -93,89 +93,20 @@ Docker platform mapping used by the fetcher: `amd64` → `linux/amd64`, `arm64` 
 
 ## 4. Installation, build and verification
 
-### 4.1 Installers and release binaries
+### 4.1 Installers
 
-#### Installers (recommended)
-
-Each architecture-specific installer offers four profiles: **bundle** (GUI + TUI + CLI), **GUI only**, **TUI only** and **CLI only**.
+Releases publish **installers only** — no loose CLI/TUI/GUI binaries.
 
 | Platform | Asset | Behaviour |
 |:---|:---|:---|
-| Linux amd64/arm64 | `opf-installer-linux-*.run` | installs to `/usr/local/bin` as root, otherwise `~/.local/bin`; adds a GUI desktop entry |
-| Windows amd64/arm64 | `opf-installer-windows-*.zip` | contains `opf-installer.exe` + `payload/`; wizard with folder (default `C:\Program Files\OPF`), user PATH, optional Start Menu shortcut, database, optional launch and Apps & Features uninstaller |
-| macOS amd64/arm64 | `opf-installer-darwin-*.pkg` | installs `OPF.app` to `/Applications` and CLI/TUI to `/usr/local/bin`; four installer choices |
+| Linux amd64/arm64 | `opf-installer-linux-*.run` | installs to `/usr/local/bin` as root, otherwise `~/.local/bin`; adds a GUI desktop entry and the database |
+| Windows amd64/arm64, CLI/TUI | `opf-CLI-installer-windows-*.zip` | raw Go wizard with **Bundle (TUI + CLI)**, **TUI**, **CLI**; folder (default `C:\Program Files\OPF`), user PATH, database, optional TUI launch and Apps & Features uninstaller |
+| Windows amd64/arm64, full | `opf-Full-installer-windows-*.zip` | Inno Setup graphical wizard with **Bundle (GUI + TUI + CLI)**, **GUI**, **TUI**, **CLI**; folder, PATH, shortcut, database and GUI/TUI launch |
+| macOS amd64/arm64 | `opf-installer-darwin-*.pkg` | installs `OPF.app` to `/Applications` and CLI/TUI to `/usr/local/bin`; four installer choices and database postinstall |
 
-The Windows installer and payload are raw executables (no packed setup, no MSI) so Cortex XDR accepts them. The macOS package is unsigned; right-click **Open** if Gatekeeper blocks it. Linux `.run` installers accept `OPF_INSTALL_PROFILE=bundle|gui|tui|cli` and `OPF_INSTALL_PREFIX` for unattended use.
+The Windows CLI/TUI installer and payload are raw executables (no packed setup, no MSI), so Cortex XDR accepts them. The Windows full installer uses Inno Setup and may require code signing or an endpoint allow-list on Cortex XDR hosts. The macOS package is unsigned; right-click **Open** if Gatekeeper blocks it. Linux `.run` installers accept `OPF_INSTALL_PROFILE=bundle|gui|tui|cli` and `OPF_INSTALL_PREFIX` for unattended use.
 
-#### Release binaries
-
-Release assets are produced by the release workflow from the tagged commit. For v0.2.7 the published set is 25 assets (24 binaries/installers plus the checksum file):
-
-| Asset | Description |
-|:---|:---|
-| `opf-cli-linux-amd64`, `opf-cli-linux-arm64` | static CLI (`CGO_ENABLED=0`), UPX-packed |
-| `opf-cli-windows-amd64.exe.zip`, `opf-cli-windows-arm64.exe.zip` | static CLI for Windows amd64/arm64, raw `.exe` inside a zip archive |
-| `opf-cli-darwin-amd64.tar.gz`, `opf-cli-darwin-arm64.tar.gz` | static CLI for macOS, inside gzip-compressed tar archives |
-| `opf-tui-*` (same six platform variants) | static TUI (`CGO_ENABLED=0`); Windows ends in `.exe.zip`, macOS in `.tar.gz` |
-| `opf-gui-linux-amd64` | Linux amd64 GUI (`CGO_ENABLED=1`, needs the graphics libraries), UPX-packed |
-| `opf-gui-linux-arm64.tar.gz` | Linux arm64 GUI, inside a tar.gz archive |
-| `opf-gui-windows-amd64.exe.zip`, `opf-gui-windows-arm64.exe.zip` | Windows GUI, raw `.exe` inside a zip archive |
-| `opf-gui-darwin-amd64.tar.gz`, `opf-gui-darwin-arm64.tar.gz` | macOS GUI for Intel and Apple Silicon, inside tar.gz archives |
-| `opf-installer-*` | six installers described above |
-| `SHA256SUMS` | SHA-256 digest of every attached asset |
-
-Verify the download before running it:
-
-```bash
-sha256sum -c SHA256SUMS --ignore-missing
-```
-
-```powershell
-Get-FileHash .\opf-cli-windows-amd64.exe.zip -Algorithm SHA256   # compare with the published SHA256SUMS
-```
-
-#### Binary size and compression
-
-Production builds strip build metadata with `-trimpath -ldflags "-s -w -buildid="`. The Linux
-artifacts are then compressed with UPX `--best --lzma` and verified with `upx -t`; the release
-workflow also runs `opf-cli -h` on the compressed Linux binary as a smoke test. Sizes measured on
-2026-11-21:
-
-| Asset | Uncompressed (bytes) | UPX (bytes) | Reduction |
-|:---|--:|--:|--:|
-| `opf-cli-linux-amd64` | 14,540,924 | 4,548,248 | -68.72% |
-| `opf-tui-linux-amd64` | 15,396,988 | 4,946,584 | -67.87% |
-| `opf-gui-linux-amd64` | 33,762,840 | 12,305,644 | -63.55% |
-| `opf-cli-linux-arm64` | 13,697,148 | 3,941,072 | -71.23% |
-| `opf-tui-linux-arm64` | 14,483,580 | 4,107,204 | -71.64% |
-
-Windows executables are **not UPX-packed** because Cortex XDR and comparable EDR products block
-packed PE files. The `.exe` is shipped raw inside a `.zip` archive, which compresses the download
-while keeping the extracted binary acceptable to the endpoint agent:
-
-| Asset | Raw `.exe` (bytes) | `.zip` (bytes) | Reduction |
-|:---|--:|--:|--:|
-| `opf-cli-windows-amd64.exe.zip` | 14,781,440 | 6,099,027 | -58.7% |
-| `opf-tui-windows-amd64.exe.zip` | 15,679,488 | 6,386,333 | -59.3% |
-| `opf-gui-windows-amd64.exe.zip` | 34,168,320 | 15,598,986 | -54.4% |
-
-Values are local measurements; published assets can differ by a few KB. Code signing with a
-trusted certificate is recommended for wider trust but is not required for Cortex XDR to run the
-extracted Windows binary.
-
-macOS cannot be packed by UPX, so it is published as `.tar.gz` archives. Extract with
-`tar -xzf <asset>.tar.gz`; measured sizes:
-
-| Asset | Uncompressed (bytes) | `.tar.gz` (bytes) | Reduction |
-|:---|--:|--:|--:|
-| `opf-cli-darwin-amd64.tar.gz` | 14,627,072 | 6,060,500 | -58.57% |
-| `opf-cli-darwin-arm64.tar.gz` | 13,807,426 | 5,646,939 | -59.10% |
-| `opf-tui-darwin-amd64.tar.gz` | 15,492,608 | 6,339,584 | -59.08% |
-| `opf-tui-darwin-arm64.tar.gz` | 14,634,338 | 5,905,253 | -59.65% |
-
-The macOS GUI archives are produced by the native macOS build jobs and their sizes are listed on the release page.
-
-`opf-gui` is published for linux/amd64, windows/amd64, darwin/amd64 and darwin/arm64.
+Release assets: the eight installers plus `SHA256SUMS` (9 assets). Verify with `sha256sum -c SHA256SUMS`.
 
 ### 4.2 Build from source
 
@@ -577,7 +508,7 @@ Precedence: `--lang` > `OPF_LANG` > operating system. The aliases `pt` and `pt_b
 
 The language applies to flag help/usage, error messages, console progress, pipeline stage names and messages, and Markdown report labels; the GUI and the TUI translate their visible strings as well (see [6. GUI walkthrough](#6-gui-walkthrough) and [7. TUI walkthrough](#7-tui-walkthrough)). `-h`/`--help` prints the localized reference and exits with status 0.
 
-Limitation in 0.2.7: low-level diagnostics remain in Brazilian Portuguese regardless of the selected language. This covers package-manager and isolated-environment output (apt/dpkg, dnf/yum/rpm, apk, Docker/WSL tooling), error causes emitted by the fetch, transfer, install, resolve, inspect, storage, config and app layers, and some internal log (slog) lines.
+Limitation in 0.2.8: low-level diagnostics remain in Brazilian Portuguese regardless of the selected language. This covers package-manager and isolated-environment output (apt/dpkg, dnf/yum/rpm, apk, Docker/WSL tooling), error causes emitted by the fetch, transfer, install, resolve, inspect, storage, config and app layers, and some internal log (slog) lines.
 
 ## 9. Remote target detection
 
@@ -746,7 +677,7 @@ The WSL fetcher removes its repository files during cleanup; Docker containers a
 
 - Use `--repo-key`/`--repo-key-url` with a key you trust; `insecure_skip_gpg_check` and `insecure_skip_tls_verify` exist for controlled labs only and are logged as warnings.
 - An `http://` repository disables transport encryption; GPG signing remains mandatory unless explicitly skipped.
-- There is no repository authentication in 0.2.7: URLs with `user:password@` are rejected. Publish the repository on a network reachable by the Docker environment or use a mirror without credentials.
+- There is no repository authentication in 0.2.8: URLs with `user:password@` are rejected. Publish the repository on a network reachable by the Docker environment or use a mirror without credentials.
 - Repository configuration is session-scoped; nothing is installed or persisted on the target, and SHA-256 verification still applies at all three points.
 
 ## 12. SSH: authentication, known_hosts, jump hosts and sudo
@@ -874,7 +805,7 @@ An abort does not invalidate artifacts that were already validated, but the sess
 
 Checkpoint state is stored in `etapas_sessao` (`pendente`, `em_andamento`, `concluida`, `falhou`, `pulada`) and the current stage in `sessoes.etapa_atual`.
 
-Resume is available **only in the GUI and the TUI** (**Continuar**, **Retomar**, `r` in history); the CLI has no resume flag in 0.2.7. The planner picks the safe stage:
+Resume is available **only in the GUI and the TUI** (**Continuar**, **Retomar**, `r` in history); the CLI has no resume flag in 0.2.8. The planner picks the safe stage:
 
 | Stored state | Resume from |
 |:---|:---|
@@ -987,7 +918,7 @@ ORDER BY eh_dependencia, nome;
 
 `--export-markdown <path>` renders the same data as Markdown with the sections `Relatório da Sessão #<id>`, `Host remoto`, `Destino e armazenamento`, `Pacotes solicitados`, `Pacotes` and `Eventos`. Section labels and the closing note (`Exportação gerada localmente. Nenhum segredo é incluído.`) are translated with the interface language; the names above are the Brazilian Portuguese source strings.
 
-The GUI report screen shows this Markdown, and both the GUI and the TUI write exports to the configured output directory as `opf-relatorio-<id>.json` / `.md`. Reports are produced from SQLite on demand: the GUI/TUI can render and export any historical session, while the CLI `--export-json` / `--export-markdown` flags export the session it just executed (the CLI has no resume or report-only command in 0.2.7). Reports are rendered in the interface language active at export time; event messages stored in SQLite keep the language they were recorded in, and JSON keys, role values (`principal`/`dependente`) and status codes are never translated.
+The GUI report screen shows this Markdown, and both the GUI and the TUI write exports to the configured output directory as `opf-relatorio-<id>.json` / `.md`. Reports are produced from SQLite on demand: the GUI/TUI can render and export any historical session, while the CLI `--export-json` / `--export-markdown` flags export the session it just executed (the CLI has no resume or report-only command in 0.2.8). Reports are rendered in the interface language active at export time; event messages stored in SQLite keep the language they were recorded in, and JSON keys, role values (`principal`/`dependente`) and status codes are never translated.
 
 ### 15.3 External Syslog
 
@@ -1044,7 +975,7 @@ Diagnostic checklist when a session fails:
 - Prefer key authentication and protect private keys. OPF cannot prompt for passphrases, so compensate with strict host controls.
 - Never pass `--ssh-password` on a shared machine: prefer `OPF_SSH_PASSWORD`/`OPF_SSH_JUMP_PASSWORDS`, and unset them after the run.
 - Keep host-key verification enabled; treat `--ssh-insecure-skip-host-key` as a lab-only escape hatch.
-- Verify release binaries against `SHA256SUMS` and verify artifacts against the session `SHA256SUMS` before moving them to the target.
+- Verify release installers against `SHA256SUMS` and verify artifacts against the session `SHA256SUMS` before moving them to the target.
 - Use a dedicated, least-privileged SSH account. Grant sudo only where installation is required and never assume NOPASSWD.
 - Keep the remote directory under `/tmp/opf-*` or `/var/tmp/opf-*` when you want automatic cleanup; a custom path is left untouched.
 - Pin additional repositories to HTTPS + GPG and keep the insecure TLS/GPG opt-ins off outside controlled labs.
@@ -1059,13 +990,13 @@ Diagnostic checklist when a session fails:
 
 **Can I run OPF fully air-gapped?** The OPF host must reach the package repositories (and image registries) once. After the artifacts are on the target, installation uses only local files. If `dpkg` fails and `apt-get install -f` runs, it may try the network; a complete dependency closure avoids that.
 
-**Why are messages in Portuguese?** Brazilian Portuguese (pt-BR) is the source language of the interface strings. The interface follows the operating system language by default and starts in English when the OS language is not English, pt-BR or Spanish; override it with `--lang auto|en|pt-BR|es` or `OPF_LANG` (see [8.11 Interface language](#811-interface-language)). Low-level package-manager and environment diagnostics remain in pt-BR in 0.2.7. Documentation is bilingual (EN default, PT-BR linked).
+**Why are messages in Portuguese?** Brazilian Portuguese (pt-BR) is the source language of the interface strings. The interface follows the operating system language by default and starts in English when the OS language is not English, pt-BR or Spanish; override it with `--lang auto|en|pt-BR|es` or `OPF_LANG` (see [8.11 Interface language](#811-interface-language)). Low-level package-manager and environment diagnostics remain in pt-BR in 0.2.8. Documentation is bilingual (EN default, PT-BR linked).
 
 **Can I download for a different architecture?** Yes, set `--arch`. Docker runs the matching platform; the resolver downloads for that architecture.
 
 **Can I install without SSH?** No. Installation requires SSH plus explicit confirmation; without SSH OPF only downloads and verifies.
 
-**Can I resume a CLI session?** Not in 0.2.7. Resume is a GUI/TUI feature; the CLI always starts a new session.
+**Can I resume a CLI session?** Not in 0.2.8. Resume is a GUI/TUI feature; the CLI always starts a new session.
 
 **Are jump-host passwords stored?** No. They live in memory for the run and must be re-entered when resuming.
 
@@ -1093,6 +1024,6 @@ Diagnostic checklist when a session fails:
 
 ## 20. Version and license
 
-This manual documents **Offline Package Fetcher 0.2.7**. OPF is distributed under the **GNU General Public License v3.0**; see [LICENSE](../LICENSE) for the full text. The project was developed with heavy AI assistance, as disclosed in the [README](../README.md#ai-assisted-development).
+This manual documents **Offline Package Fetcher 0.2.8**. OPF is distributed under the **GNU General Public License v3.0**; see [LICENSE](../LICENSE) for the full text. The project was developed with heavy AI assistance, as disclosed in the [README](../README.md#ai-assisted-development).
 
 Related documents: [README (EN)](../README.md) · [README (PT-BR)](README.pt-BR.md) · [Manual (PT-BR)](MANUAL.pt-BR.md) · [Security (EN)](SECURITY.md) · [Security (PT-BR)](SECURITY.pt-BR.md) · [Technical document (PT-BR)](project-description.pt-BR.md) · [GUI/TUI specification (PT-BR)](specs/gui-tui.pt-BR.md) · [Changelog](../CHANGELOG.md)

@@ -495,11 +495,11 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  build-installer-windows:
-    name: Build installer (windows)
-    needs: [build, build-gui, build-gui-windows-arm64]
+  build-installer-windows-cli:
+    name: Build CLI/TUI installer (windows)
+    needs: [build]
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     defaults:
       run:
         shell: pwsh
@@ -523,7 +523,73 @@ jobs:
           pattern: opf-*
           merge-multiple: true
 
-      - name: Assemble Windows payloads
+      - name: Assemble CLI/TUI payloads
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($arch in 'amd64','arm64') {
+            $payload = "dist\installer-payload\$arch"
+            New-Item -ItemType Directory -Force $payload | Out-Null
+            $tmp = "dist\unzip-$arch"
+            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force $tmp | Out-Null
+            Expand-Archive "dist\opf-cli-windows-$arch.exe.zip" -DestinationPath $tmp -Force
+            Copy-Item "$tmp\opf-cli-windows-$arch.exe" "$payload\opf-cli.exe" -Force
+            Remove-Item $tmp -Recurse -Force
+            New-Item -ItemType Directory -Force $tmp | Out-Null
+            Expand-Archive "dist\opf-tui-windows-$arch.exe.zip" -DestinationPath $tmp -Force
+            Copy-Item "$tmp\opf-tui-windows-$arch.exe" "$payload\opf-tui.exe" -Force
+            Remove-Item $tmp -Recurse -Force
+          }
+
+      - name: Build CLI/TUI installer zips
+        env:
+          OPF_TEST_INSTALLER: "1"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          ./scripts/installers/build-windows-installer.ps1 -Arch amd64 -PayloadRoot dist\installer-payload -Version $version -OutDir dist\installers
+          ./scripts/installers/build-windows-installer.ps1 -Arch arm64 -PayloadRoot dist\installer-payload -Version $version -OutDir dist\installers
+
+      - name: Upload CLI/TUI installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: opf-installer-windows-cli
+          path: dist/installers/opf-CLI-installer-windows-*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  build-installer-windows-full:
+    name: Build full GUI installer (windows)
+    needs: [build, build-gui, build-gui-windows-arm64]
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: opf-*
+          merge-multiple: true
+
+      - name: Assemble full payloads
         run: |
           $ErrorActionPreference = 'Stop'
           foreach ($arch in 'amd64','arm64') {
@@ -544,22 +610,21 @@ jobs:
             Copy-Item "$tmp\opf-gui-windows-$arch.exe" "$payload\opf-gui.exe" -Force
             Remove-Item $tmp -Recurse -Force
           }
-          Get-ChildItem dist\installer-payload -Recurse -File | Select-Object FullName,Length
 
-      - name: Build Windows installer zips
+      - name: Build full GUI installer zips
         env:
           OPF_TEST_INSTALLER: "1"
         run: |
           $ErrorActionPreference = 'Stop'
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          ./scripts/installers/build-windows-installer.ps1 -Arch amd64 -PayloadRoot dist\installer-payload -Version $version -OutDir dist\installers
-          ./scripts/installers/build-windows-installer.ps1 -Arch arm64 -PayloadRoot dist\installer-payload -Version $version -OutDir dist\installers
+          ./scripts/installers/build-windows-full-installer.ps1 -Arch amd64 -PayloadRoot dist\installer-payload -Version $version -OutDir dist\installers
+          ./scripts/installers/build-windows-full-installer.ps1 -Arch arm64 -PayloadRoot dist\installer-payload -Version $version -OutDir dist\installers
 
-      - name: Upload Windows installers
+      - name: Upload full GUI installers
         uses: actions/upload-artifact@v7
         with:
-          name: opf-installer-windows
-          path: dist/installers/opf-installer-windows-*.zip
+          name: opf-installer-windows-full
+          path: dist/installers/opf-Full-installer-windows-*.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -621,7 +686,7 @@ jobs:
   # --------------------------------------------------------------------------
   release:
     name: Publish GitHub Release
-    needs: [build, build-gui, build-gui-linux-arm64, build-gui-windows-arm64, build-gui-darwin, build-installer-linux, build-installer-windows, build-installer-darwin]
+    needs: [build, build-gui, build-gui-linux-arm64, build-gui-windows-arm64, build-gui-darwin, build-installer-linux, build-installer-windows-cli, build-installer-windows-full, build-installer-darwin]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -642,28 +707,12 @@ jobs:
         run: |
           set -euo pipefail
           expected="
-          opf-cli-linux-amd64
-          opf-cli-linux-arm64
-          opf-cli-windows-amd64.exe.zip
-          opf-cli-windows-arm64.exe.zip
-          opf-cli-darwin-amd64.tar.gz
-          opf-cli-darwin-arm64.tar.gz
-          opf-tui-linux-amd64
-          opf-tui-linux-arm64
-          opf-tui-windows-amd64.exe.zip
-          opf-tui-windows-arm64.exe.zip
-          opf-tui-darwin-amd64.tar.gz
-          opf-tui-darwin-arm64.tar.gz
-          opf-gui-linux-amd64
-          opf-gui-linux-arm64.tar.gz
-          opf-gui-windows-amd64.exe.zip
-          opf-gui-windows-arm64.exe.zip
-          opf-gui-darwin-amd64.tar.gz
-          opf-gui-darwin-arm64.tar.gz
           opf-installer-linux-amd64.run
           opf-installer-linux-arm64.run
-          opf-installer-windows-amd64.zip
-          opf-installer-windows-arm64.zip
+          opf-CLI-installer-windows-amd64.zip
+          opf-CLI-installer-windows-arm64.zip
+          opf-Full-installer-windows-amd64.zip
+          opf-Full-installer-windows-arm64.zip
           opf-installer-darwin-amd64.pkg
           opf-installer-darwin-arm64.pkg
           "
@@ -679,113 +728,53 @@ jobs:
           fi
           echo "All expected release assets are present."
 
-      - name: Install UPX and unzip for artifact verification
+      - name: Install verification tools
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y upx-ucl file unzip
-          upx --version | awk 'NR==1'
-
-      - name: Verify UPX-packed release artifacts
-        working-directory: dist
-        run: |
-          set -euo pipefail
-          # Re-verify every packed Linux artifact after the artifact
-          # round-trip. Windows executables are zipped raw (never UPX-packed);
-          # darwin is tar.gz.
-          packed="
-          opf-cli-linux-amd64
-          opf-cli-linux-arm64
-          opf-tui-linux-amd64
-          opf-tui-linux-arm64
-          opf-gui-linux-amd64
-          "
-          for binary in ${packed}; do
-            upx -t "${binary}"
-          done
-          file opf-gui-linux-amd64
-
-      - name: Verify Windows zip artifacts
-        working-directory: dist
-        run: |
-          set -euo pipefail
-          # The Windows .exe is intentionally raw; the zip only compresses the
-          # download. Verify both archives contain the expected executable.
-          for archive in opf-cli-windows-amd64.exe.zip opf-cli-windows-arm64.exe.zip opf-tui-windows-amd64.exe.zip opf-tui-windows-arm64.exe.zip opf-gui-windows-amd64.exe.zip opf-gui-windows-arm64.exe.zip; do
-            test -s "${archive}"
-            expected="$(basename "${archive}" .zip)"
-            unzip -l "${archive}" | grep -q "${expected}"
-          done
-          echo "OK: Windows zip archives contain the raw executables."
+          sudo apt-get install --no-install-recommends -y file unzip
 
       - name: Verify installer assets
         working-directory: dist
         run: |
           set -euo pipefail
-          # The dedicated build jobs already exercise the Linux installer
-          # (CLI profile), the Windows installer (silent CLI profile) and list
-          # the macOS pkg payload. Here we only assert every installer was
-          # attached by the artifact round-trip.
-          for asset in opf-installer-linux-amd64.run opf-installer-linux-arm64.run \
-                       opf-installer-windows-amd64.zip opf-installer-windows-arm64.zip \
-                       opf-installer-darwin-amd64.pkg opf-installer-darwin-arm64.pkg; do
-            test -s "${asset}"
-            file "${asset}"
+          # Linux .run installers are exercised in their build job; verify the
+          # CLI profile here after the artifact round-trip.
+          for arch in amd64 arm64; do
+            target="$(mktemp -d)"
+            OPF_INSTALL_PROFILE=cli OPF_INSTALL_PREFIX="${target}" "./opf-installer-linux-${arch}.run" >/dev/null
+            test -x "${target}/bin/opf-cli"
+            rm -rf "${target}"
+          done
+          # CLI/TUI Windows installer: menu EXE + raw CLI/TUI payload.
+          for arch in amd64 arm64; do
+            archive="opf-CLI-installer-windows-${arch}.zip"
+            test -s "${archive}"
+            unzip -l "${archive}" | tr '\\' '/' | grep -q "opf-CLI-installer.exe"
+            unzip -l "${archive}" | tr '\\' '/' | grep -q "payload/opf-cli.exe"
+            unzip -l "${archive}" | tr '\\' '/' | grep -q "payload/opf-tui.exe"
+            unzip -l "${archive}" | tr '\\' '/' | grep -q "payload/uninstall-opf.exe"
+            if unzip -l "${archive}" | grep -q "payload/opf-gui.exe"; then
+              echo "::error title=CLI installer contains GUI::${archive}"
+              exit 1
+            fi
+          done
+          # Full Windows installer: single Inno Setup executable in a zip.
+          for arch in amd64 arm64; do
+            archive="opf-Full-installer-windows-${arch}.zip"
+            test -s "${archive}"
+            unzip -l "${archive}" | tr '\\' '/' | grep -q "opf-Full-installer-windows-${arch}.exe"
           done
           for arch in amd64 arm64; do
-            unzip -l "opf-installer-windows-${arch}.zip" | tr '\\' '/' | grep -q "payload/opf-cli.exe"
-            unzip -l "opf-installer-windows-${arch}.zip" | tr '\\' '/' | grep -q "payload/uninstall-opf.exe"
+            test -s "opf-installer-darwin-${arch}.pkg"
+            file "opf-installer-darwin-${arch}.pkg"
           done
-          echo "OK: all six installer assets are present."
-      - name: Verify macOS tar.gz artifacts
-        working-directory: dist
-        run: |
-          set -euo pipefail
-          # The macOS binaries cannot be packed by UPX; verify that every
-          # published archive is non-empty and contains the expected binary.
-          for archive in \
-            opf-cli-darwin-amd64.tar.gz \
-            opf-cli-darwin-arm64.tar.gz \
-            opf-tui-darwin-amd64.tar.gz \
-            opf-tui-darwin-arm64.tar.gz \
-            opf-gui-darwin-amd64.tar.gz \
-            opf-gui-darwin-arm64.tar.gz; do
-            test -s "${archive}"
-            expected="$(basename "${archive}" .tar.gz)"
-            tar -tzf "${archive}" | grep -qx "${expected}"
-          done
-          echo "OK: every macOS archive contains its expected binary."
-
-      - name: Smoke-test downloaded opf-cli (linux/amd64)
-        working-directory: dist
-        run: |
-          set -euo pipefail
-          # Artifacts downloaded from GitHub do not preserve the executable
-          # bit, so restore it before running the smoke test.
-          chmod +x opf-cli-linux-amd64
-          # `-h` exits 0 (flag.ErrHelp is handled); printing the usage text
-          # proves the compressed binary still executes after the artifact
-          # round-trip, before the release is published.
-          if output="$(./opf-cli-linux-amd64 -h 2>&1)"; then
-            status=0
-          else
-            status=$?
-          fi
-          printf '%s\n' "${output}"
-          if [ "${status}" -ne 0 ]; then
-            echo "::error title=UPX smoke test::opf-cli -h exited ${status}, expected 0"
-            exit 1
-          fi
-          if ! grep -q -- "-target" <<< "${output}"; then
-            echo "::error title=UPX smoke test::opf-cli -h did not print its usage text"
-            exit 1
-          fi
-          echo "OK: downloaded compressed opf-cli runs and prints usage."
+          echo "OK: only installer assets are present."
 
       - name: Generate SHA256SUMS
         working-directory: dist
         run: |
           set -euo pipefail
-          sha256sum opf-* > SHA256SUMS
+          sha256sum opf-installer-* opf-CLI-installer-* opf-Full-installer-* > SHA256SUMS
           echo "----- SHA256SUMS -----"
           cat SHA256SUMS
           echo "----------------------"
@@ -803,8 +792,7 @@ jobs:
           fail_on_unmatched_files: true
           make_latest: true
           files: |
-            dist/opf-cli-*
-            dist/opf-tui-*
-            dist/opf-gui-*
             dist/opf-installer-*
+            dist/opf-CLI-installer-*
+            dist/opf-Full-installer-*
             dist/SHA256SUMS

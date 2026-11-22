@@ -28,6 +28,7 @@ import (
 )
 
 var version = "dev"
+var edition = "full"
 
 type profile struct {
 	title string
@@ -39,6 +40,17 @@ var profiles = map[string]profile{
 	"gui":    {title: "GUI only", files: []string{"opf-gui.exe"}},
 	"tui":    {title: "TUI only", files: []string{"opf-tui.exe"}},
 	"cli":    {title: "CLI only", files: []string{"opf-cli.exe"}},
+}
+
+func availableProfiles() map[string]profile {
+	if edition == "cli" {
+		return map[string]profile{
+			"bundle": {title: "Bundle: TUI + CLI", files: []string{"opf-tui.exe", "opf-cli.exe"}},
+			"tui":    {title: "TUI only", files: []string{"opf-tui.exe"}},
+			"cli":    {title: "CLI only", files: []string{"opf-cli.exe"}},
+		}
+	}
+	return profiles
 }
 
 var stdin = bufio.NewReader(os.Stdin)
@@ -105,6 +117,24 @@ func askYesNo(label string, defaultValue bool) bool {
 func chooseProfile() string {
 	fmt.Println()
 	fmt.Println("Step 1 of 4 - Choose what to install:")
+	if edition == "cli" {
+		fmt.Println("  1) Bundle: TUI + CLI")
+		fmt.Println("  2) TUI only")
+		fmt.Println("  3) CLI only")
+		for {
+			choice := ask("Profile", "1")
+			switch choice {
+			case "1":
+				return "bundle"
+			case "2":
+				return "tui"
+			case "3":
+				return "cli"
+			default:
+				fmt.Println("  Please type 1, 2 or 3.")
+			}
+		}
+	}
 	fmt.Println("  1) Bundle: GUI + TUI + CLI")
 	fmt.Println("  2) GUI only")
 	fmt.Println("  3) TUI only")
@@ -296,7 +326,7 @@ func launch(profileName, installDir string) {
 	fmt.Println()
 	fmt.Println("Step 4 of 4 - Open OPF:")
 	options := []string{}
-	if profileName == "bundle" || profileName == "gui" {
+	if edition != "cli" && (profileName == "bundle" || profileName == "gui") {
 		options = append(options, "Open the GUI")
 	}
 	if profileName == "bundle" || profileName == "tui" {
@@ -369,8 +399,12 @@ func main() {
 	}
 
 	if !silent {
+		title := "Offline Package Fetcher (OPF) - Installer"
+		if edition == "cli" {
+			title = "Offline Package Fetcher (OPF) - CLI/TUI Installer"
+		}
 		box(
-			"Offline Package Fetcher (OPF) - Installer",
+			title,
 			"Version "+version,
 			"",
 			"This wizard installs OPF on your computer.",
@@ -384,7 +418,7 @@ func main() {
 			profileName = chooseProfile()
 		}
 	}
-	selected, ok := profiles[profileName]
+	selected, ok := availableProfiles()[profileName]
 	if !ok {
 		fmt.Fprintln(os.Stderr, "error: profile must be bundle, gui, tui or cli")
 		os.Exit(2)
@@ -440,7 +474,7 @@ func main() {
 	}
 
 	shortcut := false
-	if profileName == "bundle" || profileName == "gui" {
+	if edition != "cli" && (profileName == "bundle" || profileName == "gui") {
 		if silent {
 			shortcut = !noShortcut
 		} else {
@@ -508,7 +542,7 @@ func main() {
 		"Database: "+dbPath,
 		"Profile:  "+selected.title,
 	)
-	if profileName == "bundle" || profileName == "gui" {
+	if edition != "cli" && (profileName == "bundle" || profileName == "gui") {
 		fmt.Println("You can open the GUI from the Start Menu" + func() string {
 			if shortcut {
 				return "."

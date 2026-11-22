@@ -4,6 +4,30 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-11-21
+
+Installer-only releases and two Windows installer editions.
+
+### Changed
+
+- Releases now publish **installers only**. The loose CLI/TUI/GUI binaries
+  (`opf-cli-*`, `opf-tui-*`, `opf-gui-*`) are no longer attached; the eight
+  installers and `SHA256SUMS` are the complete asset set.
+- **Windows CLI/TUI installer** (`opf-CLI-installer-windows-*.zip`): raw Go
+  wizard with **Bundle (TUI + CLI)**, **TUI only** and **CLI only**; no GUI.
+- **Windows full installer** (`opf-Full-installer-windows-*.zip`): graphical
+  **Inno Setup** wizard with **Bundle (GUI + TUI + CLI)**, **GUI only**,
+  **TUI only** and **CLI only**, same folder/PATH/shortcut/database/launch
+  behavior and Apps & Features uninstaller.
+- Linux `.run` and macOS `.pkg` installers remain the release deliverables for
+  those platforms.
+
+### Notes
+
+- The full Inno Setup installer is a packed executable; Cortex XDR hosts may
+  require code signing or an allow-list. The CLI/TUI installer remains raw and
+  is accepted without that step.
+
 ## [0.2.7] - 2026-11-21
 
 Uninstaller and application-icon fixes.

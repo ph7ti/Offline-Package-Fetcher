@@ -8,7 +8,7 @@ set -euo pipefail
 arch="${1:-}"
 payload="${2:-}"
 out="${3:-}"
-version="${4:-0.2.7}"
+version="${4:-0.2.8}"
 if [[ -z "${arch}" || -z "${payload}" || -z "${out}" ]]; then
 	echo "usage: $0 <amd64|arm64> <payload-dir> <output.pkg> [version]" >&2
 	exit 2
