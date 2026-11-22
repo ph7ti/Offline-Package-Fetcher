@@ -352,8 +352,12 @@ jobs:
         run: |
           set -euo pipefail
           go install github.com/fyne-io/fyne-cross@v1.6.3
+          # fyne-cross packages its own icon resource; remove our ARM64 .syso
+          # to avoid a duplicate ICON resource in the linker.
+          rm -f cmd/opf-gui/rsrc_windows_arm64.syso
           "$(go env GOPATH)/bin/fyne-cross" windows -arch=arm64 \
-            -name opf-gui -app-id org.opf.gui -env GOTOOLCHAIN=auto ./cmd/opf-gui
+            -name opf-gui -app-id org.opf.gui -icon images/icon.png \
+            -env GOTOOLCHAIN=auto ./cmd/opf-gui
           unzip -o fyne-cross/dist/windows-arm64/opf-gui.zip -d fyne-cross/dist/windows-arm64
           mkdir -p dist
           cp fyne-cross/dist/windows-arm64/opf-gui.exe dist/opf-gui-windows-arm64.exe
