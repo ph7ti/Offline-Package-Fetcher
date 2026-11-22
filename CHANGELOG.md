@@ -4,6 +4,30 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-11-21
+
+Uninstaller and application-icon fixes.
+
+### Fixed
+
+- **Windows uninstaller**: the installer now ships `uninstall-opf.exe`, writes
+  `install.json` and registers an entry in **Apps & Features**. The uninstaller
+  removes the binaries from the chosen folder (including `Program Files`), the
+  user PATH entry, the Start Menu shortcut and the registry entry, and asks
+  whether to remove the local database/history.
+- The uninstaller copies itself to `%TEMP%` before removing the installed copy,
+  avoiding the Windows file lock on a running executable.
+- **Icons**: `opf-cli.exe`, `opf-tui.exe`, `opf-gui.exe`, `opf-installer.exe`
+  and `uninstall-opf.exe` now embed the OPF icon in their PE resources; the
+  Fyne GUI also sets the window/app icon, so the icon appears in the Windows
+  taskbar.
+- macOS app bundles include `opf.icns`; the Linux desktop entry installs and
+  references the hicolor icon.
+
+### Notes
+
+- Installer assets remain raw Go/shell/pkg payloads; Cortex XDR accepts them.
+
 ## [0.2.6] - 2026-11-21
 
 Installer UX and database-location improvements.

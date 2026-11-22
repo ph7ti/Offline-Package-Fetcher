@@ -19,7 +19,6 @@
 *.o
 *.obj
 *.lib
-*.syso
 *.res
 *.test
 *.out

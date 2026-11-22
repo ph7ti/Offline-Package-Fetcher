@@ -8,7 +8,7 @@ set -euo pipefail
 arch="${1:-}"
 payload="${2:-}"
 out="${3:-}"
-version="${4:-0.2.6}"
+version="${4:-0.2.7}"
 if [[ -z "${arch}" || -z "${payload}" || -z "${out}" ]]; then
 	echo "usage: $0 <amd64|arm64> <payload-dir> <output.pkg> [version]" >&2
 	exit 2
@@ -26,10 +26,11 @@ esac
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 mkdir -p "${work}/root-cli/usr/local/bin" "${work}/root-tui/usr/local/bin"
-mkdir -p "${work}/root-gui/Applications/OPF.app/Contents/MacOS"
+mkdir -p "${work}/root-gui/Applications/OPF.app/Contents/MacOS" "${work}/root-gui/Applications/OPF.app/Contents/Resources"
 install -m 0755 "${payload}/opf-cli" "${work}/root-cli/usr/local/bin/opf-cli"
 install -m 0755 "${payload}/opf-tui" "${work}/root-tui/usr/local/bin/opf-tui"
 install -m 0755 "${payload}/opf-gui" "${work}/root-gui/Applications/OPF.app/Contents/MacOS/opf-gui"
+install -m 0644 "$(dirname "$0")/../../images/icon.icns" "${work}/root-gui/Applications/OPF.app/Contents/Resources/opf.icns"
 
 cat >"${work}/root-gui/Applications/OPF.app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -38,6 +39,7 @@ cat >"${work}/root-gui/Applications/OPF.app/Contents/Info.plist" <<EOF
 <dict>
   <key>CFBundleDisplayName</key><string>OPF</string>
   <key>CFBundleExecutable</key><string>opf-gui</string>
+  <key>CFBundleIconFile</key><string>opf.icns</string>
   <key>CFBundleIdentifier</key><string>org.opf.gui</string>
   <key>CFBundleName</key><string>OPF</string>
   <key>CFBundlePackageType</key><string>APPL</string>

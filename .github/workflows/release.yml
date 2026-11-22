@@ -470,6 +470,7 @@ jobs:
               tar -xzf dist/opf-gui-linux-arm64.tar.gz -C "${payload}" opf-gui-linux-arm64
               mv "${payload}/opf-gui-linux-arm64" "${payload}/opf-gui"
             fi
+            cp images/icon.png "${payload}/opf.png"
             chmod 0755 "${payload}"/opf-*
             bash scripts/installers/build-linux-installer.sh "${arch}" "${payload}" "dist/opf-installer-linux-${arch}.run"
           done
@@ -725,6 +726,10 @@ jobs:
                        opf-installer-darwin-amd64.pkg opf-installer-darwin-arm64.pkg; do
             test -s "${asset}"
             file "${asset}"
+          done
+          for arch in amd64 arm64; do
+            unzip -l "opf-installer-windows-${arch}.zip" | tr '\\' '/' | grep -q "payload/opf-cli.exe"
+            unzip -l "opf-installer-windows-${arch}.zip" | tr '\\' '/' | grep -q "payload/uninstall-opf.exe"
           done
           echo "OK: all six installer assets are present."
       - name: Verify macOS tar.gz artifacts

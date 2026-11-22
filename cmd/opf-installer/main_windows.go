@@ -15,6 +15,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -41,6 +42,16 @@ var profiles = map[string]profile{
 }
 
 var stdin = bufio.NewReader(os.Stdin)
+
+type installManifest struct {
+	Version      string   `json:"version"`
+	Profile      string   `json:"profile"`
+	InstallDir   string   `json:"install_dir"`
+	DatabasePath string   `json:"database_path"`
+	Shortcut     bool     `json:"shortcut"`
+	PathAdded    bool     `json:"path_added"`
+	Files        []string `json:"files"`
+}
 
 func box(lines ...string) {
 	width := 64
@@ -196,6 +207,48 @@ func addToUserPath(dir string) error {
 		updated = strings.TrimRight(current, ";") + ";" + dir
 	}
 	return key.SetExpandStringValue("Path", updated)
+}
+
+func writeManifest(path string, m installManifest) error {
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644) // #nosec G703 -- install manifest written to the user-selected folder
+}
+
+func registerUninstall(m installManifest) error {
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Uninstall\OPF`, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer key.Close()
+	uninstaller := filepath.Join(m.InstallDir, "uninstall-opf.exe")
+	icon := filepath.Join(m.InstallDir, "opf-gui.exe")
+	if _, err := os.Stat(icon); err != nil {
+		icon = filepath.Join(m.InstallDir, "opf-cli.exe")
+	}
+	values := map[string]string{
+		"DisplayName":          "Offline Package Fetcher",
+		"DisplayVersion":       version,
+		"Publisher":            "Offline Package Fetcher",
+		"InstallLocation":      m.InstallDir,
+		"DisplayIcon":          icon,
+		"UninstallString":      `"` + uninstaller + `"`,
+		"QuietUninstallString": `"` + uninstaller + `" --silent`,
+		"URLInfoAbout":         "https://github.com/ph7ti/Offline-Package-Fetcher",
+	}
+	for name, value := range values {
+		if err := key.SetStringValue(name, value); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"NoModify", "NoRepair"} {
+		if err := key.SetDWordValue(name, 1); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func createShortcut(guiPath string) error {
@@ -401,10 +454,12 @@ func main() {
 	fmt.Println("Installing OPF...")
 	fmt.Printf("  [1/4] Installing %s\n", selected.title)
 	payloadDir := filepath.Join(filepath.Dir(mustExecutable()), "payload")
-	for i, name := range selected.files {
+	files := append([]string{}, selected.files...)
+	files = append(files, "uninstall-opf.exe")
+	for i, name := range files {
 		src := filepath.Join(payloadDir, name)
 		dst := filepath.Join(installDir, name)
-		fmt.Printf("        (%d/%d) %s\n", i+1, len(selected.files), name)
+		fmt.Printf("        (%d/%d) %s\n", i+1, len(files), name)
 		if err := copyFile(src, dst); err != nil {
 			fmt.Fprintf(os.Stderr, "\nInstallation failed while copying %s: %v\n", name, err)
 			os.Exit(1)
@@ -420,6 +475,21 @@ func main() {
 	dbPath, err := createDatabase()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  Warning: could not create %s: %v\n", dbPath, err)
+	}
+	m := installManifest{
+		Version:      version,
+		Profile:      profileName,
+		InstallDir:   installDir,
+		DatabasePath: dbPath,
+		Shortcut:     shortcut,
+		PathAdded:    true,
+		Files:        files,
+	}
+	if err := writeManifest(filepath.Join(installDir, "install.json"), m); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: could not write install manifest: %v\n", err)
+	}
+	if err := registerUninstall(m); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: could not register the uninstaller: %v\n", err)
 	}
 	if shortcut {
 		fmt.Println("  [4/4] Creating the Start Menu shortcut")

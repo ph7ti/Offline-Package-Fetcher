@@ -74,7 +74,7 @@ for arg in "$@"; do
 	esac
 done
 
-box "Offline Package Fetcher (OPF) - Installer" "Version 0.2.6" "" \
+box "Offline Package Fetcher (OPF) - Installer" "Version 0.2.7" "" \
 	"This wizard installs OPF on your computer." \
 	"You can change the folder and choose what to install."
 
@@ -136,14 +136,22 @@ echo "  [1/4] Installing ${PROFILE}"
 install_gui() {
 	install -m 0755 "${SCRIPT_DIR}/opf-gui" "${BINDIR}/opf-gui"
 	if [[ "${SHORTCUT}" -eq 1 ]]; then
-		if [[ "${EUID}" -eq 0 ]]; then APPDIR="/usr/share/applications"; else APPDIR="${HOME}/.local/share/applications"; fi
-		install -d -m 0755 "${APPDIR}"
+		if [[ "${EUID}" -eq 0 ]]; then
+			APPDIR="/usr/share/applications"
+			ICONDIR="/usr/share/icons/hicolor/256x256/apps"
+		else
+			APPDIR="${HOME}/.local/share/applications"
+			ICONDIR="${HOME}/.local/share/icons/hicolor/256x256/apps"
+		fi
+		install -d -m 0755 "${APPDIR}" "${ICONDIR}"
+		install -m 0644 "${SCRIPT_DIR}/opf.png" "${ICONDIR}/opf.png"
 		cat >"${APPDIR}/opf.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Offline Package Fetcher
 Comment=Offline Linux package fetcher
 Exec=${BINDIR}/opf-gui
+Icon=opf
 Terminal=false
 Categories=Utility;PackageManager;
 EOF

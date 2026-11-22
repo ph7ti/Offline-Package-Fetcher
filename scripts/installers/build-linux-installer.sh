@@ -22,6 +22,10 @@ for binary in opf-cli opf-tui opf-gui; do
 		exit 2
 	fi
 done
+if [[ ! -f "${payload}/opf.png" ]]; then
+	echo "error: missing icon ${payload}/opf.png" >&2
+	exit 2
+fi
 command -v makeself >/dev/null 2>&1 || {
 	echo "error: makeself not found (apt-get install makeself)" >&2
 	exit 2
@@ -30,7 +34,7 @@ command -v makeself >/dev/null 2>&1 || {
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 mkdir -p "${work}/payload"
-cp "${payload}/opf-cli" "${payload}/opf-tui" "${payload}/opf-gui" "${work}/payload/"
+cp "${payload}/opf-cli" "${payload}/opf-tui" "${payload}/opf-gui" "${payload}/opf.png" "${work}/payload/"
 cp "$(dirname "$0")/../../installers/linux/install.sh" "${work}/payload/install.sh"
 chmod 0755 "${work}/payload/install.sh"
 mkdir -p "$(dirname "${out}")"

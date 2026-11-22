@@ -53,7 +53,7 @@ func (m *Model) View() string {
 	case screenSettings:
 		body = m.viewSettings()
 	}
-	header := titleStyle.Render("OPF TUI 2.6") + "  " + helpStyle.Render("terminal • CGO_ENABLED=0")
+	header := titleStyle.Render("OPF TUI 2.7") + "  " + helpStyle.Render("terminal • CGO_ENABLED=0")
 	help := helpStyle.Render(m.helpText())
 	return header + "\n" + strings.Repeat("─", 72) + "\n\n" + body + "\n\n" + help
 }

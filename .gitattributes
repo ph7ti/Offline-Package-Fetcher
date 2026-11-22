@@ -17,6 +17,8 @@ Dockerfile text eol=lf
 # Binary assets must never be normalized.
 *.png   binary
 *.ico   binary
+*.icns  binary
+*.syso  binary
 *.jpg   binary
 *.jpeg  binary
 *.gif   binary
