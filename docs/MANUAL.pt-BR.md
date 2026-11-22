@@ -229,7 +229,7 @@ A distro informada precisa estar registrada (`wsl --list --verbose`), ser Ubuntu
 
 ## 6. GUI passo a passo
 
-A GUI (`opf-gui`) é um binário Fyne separado, compilado com `CGO_ENABLED=1`. O fluxo é **SSH-first**: uma nova sessão começa pela conexão e detecção do destino; a configuração manual fica em **Avançado**. Os rótulos de tela e de campos seguem o idioma da interface; este manual cita os rótulos-fonte em português do Brasil.
+A GUI (`opf-gui`) é um binário Fyne separado, compilado com `CGO_ENABLED=1`. O fluxo é **SSH-first**: uma nova sessão começa pela conexão e detecção do destino; a configuração manual fica em **Avançado**. Os rótulos de tela e de campos seguem o idioma da interface; este manual cita os rótulos-fonte em português do Brasil. As capturas usam a interface em inglês e refletem a v0.2.8. O ícone do OPF é embutido nos executáveis e aparece na barra de tarefas do Windows; o botão de tema alterna claro/escuro.
 
 ### 6.1 Início
 
@@ -244,6 +244,8 @@ Tela inicial com quatro indicadores (Sessões, Pacotes, Instalados, Banco de dad
 | **Atualizar** | recarrega indicadores, banco e sessões recentes |
 
 Abaixo, **Sessões recentes** mostra até quatro cartões com `#id`, distro/versão, host (ou “download local”), data e total de pacotes, cada um com os botões **Relatório**, **Retomar** (desabilitado em sessões concluídas) e **Arquivar**.
+
+<img src="../prints/gui-start.png" width="850" alt="Painel inicial com ações rápidas, indicadores e sessões recentes">
 
 ### 6.2 Conexão SSH e Jump Hosts
 
@@ -260,6 +262,10 @@ Regras e avisos:
 - Alterar host, usuário, porta ou a configuração das pontes invalida a detecção anterior (`Configuração SSH alterada; detecte novamente.`).
 - **Configurar manualmente** abre **Configuração da Sessão** e limpa o alvo detectado se a detecção estiver desatualizada.
 
+<img src="../prints/gui-ssh-connection.png" width="850" alt="Tela de conexão SSH com host key estrita e autenticação">
+
+<img src="../prints/gui-ssh-security.png" width="850" alt="Seção de pontes SSH, diretório remoto e detecção de destino">
+
 ### 6.3 Configuração da Sessão (avançado)
 
 Campos:
@@ -275,6 +281,8 @@ Ao trocar a distro, a GUI sugere versão e arquitetura padrão (`ubuntu`/`22.04`
 
 **Continuar** valida distro, versão e arquitetura antes de abrir **Pacotes e Pré-check**.
 
+<img src="../prints/gui-session-configuration.png" width="850" alt="Configuração da sessão com destino, ambiente e repositórios">
+
 ### 6.4 Pacotes e Pré-check
 
 | Campo | Comportamento |
@@ -288,6 +296,8 @@ Ao trocar a distro, a GUI sugere versão e arquitetura padrão (`ubuntu`/`22.04`
 
 Sem SSH, os controles de instalação ficam desabilitados e um banner informa que os pacotes serão apenas baixados e validados. **Iniciar** executa o pipeline.
 
+<img src="../prints/gui-packages.png" width="850" alt="Tela de pacotes e pré-check com opções e sudo">
+
 ### 6.5 Pipeline
 
 - **Etapas do pipeline**: grade com as 13 etapas e marcadores `[ ]`, `[▶]`, `[✔]` e `[✘]`.
@@ -296,6 +306,8 @@ Sem SSH, os controles de instalação ficam desabilitados e um banner informa qu
 - **Cancelar execução**: solicita cancelamento; a sessão termina como `abortada` com cleanup local e remoto best-effort.
 
 Durante a instalação, aparece o diálogo **Confirmar instalação** com **Instalar** / **Recusar**.
+
+<img src="../prints/gui-pipeline.png" width="850" alt="Pipeline com progresso, 13 etapas e log em tempo real">
 
 ### 6.6 Resultado
 
@@ -352,6 +364,8 @@ Offline Package Fetcher
 
 Navegação: `↑`/`↓` ou `k`/`j`; `Enter` seleciona; `q` sai. O rodapé confirma `SQLite: OK` e a política `Sem NOPASSWD • host key obrigatória • segredos nunca são logados`.
 
+<img src="../prints/tui-main-menu.png" width="700" alt="Menu principal da TUI com status do SQLite e rodapé de segurança">
+
 ### 7.2 Telas e atalhos
 
 | Tela | Teclas | Observações |
@@ -368,6 +382,9 @@ Navegação: `↑`/`↓` ou `k`/`j`; `Enter` seleciona; `q` sai. O rodapé confi
 | **Relatório da sessão** | `↑`/`↓`/`k`/`j` rolar, `pgup`/`pgdown`, `J` JSON, `M` Markdown, `S` Syslog, `esc` volta | exporta `opf-relatorio-<id>.json/.md` no diretório de saída |
 | **Histórico** | `↑`/`↓`, `enter` abrir relatório, `r` retomar, `a` arquivar, `esc` voltar | sessões arquivadas marcadas com `(arquivada)` |
 | **Configurações Globais** | `tab`/`↑↓`, `ctrl+s` salva, `esc` volta | temporário, timeout, idioma da interface, Syslog (host, porta, protocolo, tag) |
+
+<img src="../prints/tui-session-configuration.png" width="700" alt="Campos de configuração da sessão na TUI">
+
 
 O campo **Idioma da interface** aceita `auto`, `en`, `pt-BR` ou `es` (os apelidos `pt` e `pt_BR` são normalizados). `auto` segue `OPF_LANG` quando definida e, caso contrário, o sistema operacional. Ao salvar, o valor é validado, persistido em `config.json` e a tela de configurações, os rótulos dos formulários e os textos de ajuda são redesenhados imediatamente no novo idioma.
 
@@ -541,7 +558,6 @@ O OPF segue o idioma do sistema operacional por padrão. São suportados inglês
 | Flag | Tipo | Default | Observações |
 |:---|:---|:---|:---|
 | `--lang` | string | `auto` | `auto`, `en`, `pt-BR` ou `es`; `-lang` e `--lang` são aceitos |
-
 | Variável | Conteúdo |
 |:---|:---|
 | `OPF_LANG` | `auto`, `en`, `pt-BR` ou `es`; consultada quando `--lang` está em `auto`/omitida (também afeta a inicialização da GUI e da TUI) |

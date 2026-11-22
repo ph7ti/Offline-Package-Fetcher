@@ -230,11 +230,13 @@ WSL fetches only APT families (Ubuntu/Debian); RPM and APK require Docker. Run t
 
 ## 6. GUI walkthrough
 
-Start it with `opf-gui` (or `bin/opf-gui`). The window is titled **OPF — Offline Package Fetcher**. Every screen shares a top bar (icon, product name, Home/History/Settings shortcuts, theme toggle) and a status bar (pipeline state, database file, current theme). Screen and field labels follow the interface language; this manual quotes the Brazilian Portuguese source labels.
+Start it with `opf-gui` (or `bin/opf-gui`). The window is titled **OPF — Offline Package Fetcher**. Every screen shares a top bar (icon, product name, Home/History/Settings shortcuts, theme toggle) and a status bar (pipeline state, database file, current theme). Screen and field labels follow the interface language; this manual quotes the Brazilian Portuguese source labels. The screenshots use the English interface and reflect v0.2.8. The OPF icon is embedded in the executables and appears in the Windows taskbar; the theme toggle switches between light and dark.
 
 ### 6.1 Início
 
 Quick actions: **Nova sessão**, **Continuar**, **Histórico**, **Configurações**, **Atualizar**. Four counters (sessions, packages, installed packages, SQLite file) and up to four recent session cards with **Relatório**, **Retomar** and **Arquivar** actions.
+
+<img src="../prints/gui-start.png" width="850" alt="Start dashboard with quick actions, counters and recent sessions">
 
 ### 6.2 Conexão SSH e Jump Hosts
 
@@ -242,17 +244,27 @@ The **Modo de operação** toggle (**Enviar e instalar via SSH**) hides or revea
 
 **Detectar destino** reads `/etc/os-release` and `uname -m` and fills distribution, version, architecture and image; the detection is invalidated if host, user, port or the jump list changes. **Configurar manualmente** switches to the session configuration screen without detection. **Continuar** requires host and user, a key or password, and a detected or manually configured target.
 
+<img src="../prints/gui-ssh-connection.png" width="850" alt="SSH connection screen with strict host key and authentication">
+
+<img src="../prints/gui-ssh-security.png" width="850" alt="Jump hosts, remote directory and destination detection section">
+
 ### 6.3 Configuração da Sessão (advanced)
 
 **Distro de destino** (Ubuntu, Debian, CentOS, Rocky Linux, AlmaLinux, Fedora, RHEL, Alpine), **Versão**, **Arquitetura**, **Método de fetch** (Docker, WSL, Automático), **Imagem Docker (opcional)**, **Distro WSL (opcional)**, **Diretório de saída**, **Incluir dependências opcionais** and the list of **Repositórios adicionais** (used only inside the download environment). **Continuar** validates that distro, version and architecture are filled.
+
+<img src="../prints/gui-session-configuration.png" width="850" alt="Session configuration with target, download environment and repositories">
 
 ### 6.4 Pacotes e Pré-check
 
 Package entry (one per line or comma-separated), optional dependencies, **Forçar reinstalação (ignorar pré-check)**, **Instalar após transferir e validar**, **Usar sudo com a senha da conta** and the sudo password. With SSH disabled, the install card is hidden and the screen states that packages will only be downloaded and validated locally. **Iniciar** runs the session.
 
+<img src="../prints/gui-packages.png" width="850" alt="Packages and pre-check with optional dependencies and sudo">
+
 ### 6.5 Pipeline
 
 Progress bar, 13 stage indicators, live log (last 400 lines) and **Cancelar execução**. The remote pre-check, integrity verification and installation are stages of this screen — the GUI does not have separate screens for them. When installation is requested, the dialog **Confirmar instalação** offers **Instalar** / **Recusar**; refusing keeps the artifacts uploaded.
+
+<img src="../prints/gui-pipeline.png" width="850" alt="Pipeline progress with the 13 stages and live log">
 
 ### 6.6 Resultado
 
@@ -296,6 +308,8 @@ Offline Package Fetcher
 
 Navigation: `↑`/`↓` or `k`/`j`; `Enter` selects; `q` exits. The footer confirms `SQLite: OK` and the policy line `Sem NOPASSWD • host key obrigatória • segredos nunca são logados`.
 
+<img src="../prints/tui-main-menu.png" width="700" alt="TUI main menu with SQLite status and security footer">
+
 ### 7.2 Screens and shortcuts
 
 | Screen | Keys | Notes |
@@ -312,6 +326,8 @@ Navigation: `↑`/`↓` or `k`/`j`; `Enter` selects; `q` exits. The footer confi
 | **Relatório da sessão** | `↑`/`↓`, `pgup`/`pgdown`, `J` JSON, `M` Markdown, `S` Syslog, `esc` back | rendered from SQLite, works for old sessions |
 | **Histórico** | `↑`/`↓`, `enter` report, `r` resume, `a` archive, `esc` back | archived sessions are hidden |
 | **Configurações Globais** | `tab`/`↓`, `space` toggle, `ctrl+s` saves, `esc` back | temp dir, timeout, interface language, Syslog host/port/protocol/tag |
+
+<img src="../prints/tui-session-configuration.png" width="700" alt="TUI session configuration fields">
 
 Notes:
 
@@ -499,7 +515,6 @@ OPF follows the operating system language by default. English, Brazilian Portugu
 | Flag | Type | Default | Notes |
 |:---|:---|:---|:---|
 | `--lang` | string | `auto` | `auto`, `en`, `pt-BR` or `es`; `-lang` and `--lang` are both accepted |
-
 | Variable | Content |
 |:---|:---|
 | `OPF_LANG` | `auto`, `en`, `pt-BR` or `es`; consulted when `--lang` is `auto` or omitted (it also affects GUI and TUI startup) |

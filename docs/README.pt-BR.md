@@ -271,10 +271,50 @@ O diretório de saída padrão da CLI/TUI é `./opf-output`, o banco padrão é 
 
 ## GUI e TUI
 
-- **GUI** (`opf-gui`): painel inicial com indicadores e sessões recentes, configuração de sessão, conexão SSH com detecção de destino e pontes, pacotes e pré-check, execução com etapas e log em tempo real, confirmação de instalação, resultado, relatório renderizado, histórico e configurações globais. Tema claro/escuro alternável.
+- **GUI** (`opf-gui`): painel inicial com indicadores e sessões recentes, configuração de sessão, conexão SSH com detecção de destino e pontes, pacotes e pré-check, execução com etapas e log em tempo real, confirmação de instalação, resultado, relatório renderizado, histórico e configurações globais. Tema claro/escuro alternável. O ícone do OPF é embutido em todos os executáveis Windows e aparece na barra de tarefas.
 - **TUI** (`opf-tui`): o mesmo fluxo em terminal, com atalhos como `ctrl+d` (detectar destino), `ctrl+t` (testar SSH), `ctrl+j` (pontes), `ctrl+r` (repositórios), `J`/`M` (exportar relatório) e `S` (enviar ao Syslog).
 
 O passo a passo completo, tela por tela e tecla por tecla, está no [manual do usuário](MANUAL.pt-BR.md#6-gui-passo-a-passo).
+
+## Capturas de tela
+
+As imagens mostram a interface atual em inglês. A GUI segue o idioma selecionado (inglês, português ou espanhol) e permite alternar entre tema claro e escuro.
+
+### GUI
+
+**Painel inicial.** Ações rápidas (Nova sessão, Continuar, Histórico, Configurações, Atualizar), contadores de sessões, pacotes, instalados e banco SQLite, além das sessões recentes.
+
+<img src="../prints/gui-start.png" width="900" alt="Painel inicial da GUI do OPF">
+
+**Configuração da Sessão.** Distribuição, versão e arquitetura de destino; ambiente Docker/WSL; imagem Docker ou distro WSL; repositórios adicionais.
+
+<img src="../prints/gui-session-configuration.png" width="900" alt="Tela de configuração da sessão da GUI">
+
+**Conexão SSH e Jump Hosts.** Envio e instalação opcionais por SSH, verificação estrita de host key, chave/senha e `known_hosts`.
+
+<img src="../prints/gui-ssh-connection.png" width="900" alt="Tela de conexão SSH da GUI">
+
+**Jump hosts, destino e segurança.** Jump hosts em ordem, diretório remoto, detecção do destino, teste de conexão e opção insegura de ignorar host key explicitamente marcada.
+
+<img src="../prints/gui-ssh-security.png" width="900" alt="Seção de jump hosts e segurança SSH da GUI">
+
+**Pacotes e Pré-check.** Um pacote por linha ou separado por vírgulas, dependências opcionais, forçar reinstalação, confirmação de instalação remota e sudo.
+
+<img src="../prints/gui-packages.png" width="900" alt="Tela de pacotes e pré-check da GUI">
+
+**Pipeline.** Etapa atual, barra de progresso, checklist das 13 etapas, log em tempo real e cancelamento.
+
+<img src="../prints/gui-pipeline.png" width="900" alt="Tela de progresso do pipeline da GUI">
+
+### TUI
+
+**Menu principal.** `OPF TUI 2.8`, status do SQLite e rodapé de segurança (`No NOPASSWD`, host key obrigatória, segredos nunca registrados).
+
+<img src="../prints/tui-main-menu.png" width="750" alt="Menu principal da TUI do OPF">
+
+**Configuração da Sessão.** Destino, arquitetura, método de fetch, opções Docker/WSL, saída, banco, pacotes opcionais e repositórios adicionais.
+
+<img src="../prints/tui-session-configuration.png" width="750" alt="Tela de configuração da sessão da TUI">
 
 ## Documentação
 
