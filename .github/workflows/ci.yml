@@ -470,7 +470,7 @@ jobs:
   #     inside a .tar.gz archive).
   # --------------------------------------------------------------------------
   build-gui-darwin:
-    name: Build GUI (${{ matrix.os }})
+    name: Build GUI (${{ matrix.label }})
     needs: [test]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -479,12 +479,18 @@ jobs:
       matrix:
         include:
           - os: macos-15-intel
+            label: macos-amd64
             goarch: amd64
-          - os: macos-15
+            cgo_flags: ""
+          - os: macos-15-intel
+            label: macos-arm64-cross
             goarch: arm64
+            cgo_flags: "-arch arm64"
     env:
       CGO_ENABLED: "1"
       GOARCH: ${{ matrix.goarch }}
+      CGO_CFLAGS: ${{ matrix.cgo_flags }}
+      CGO_LDFLAGS: ${{ matrix.cgo_flags }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7

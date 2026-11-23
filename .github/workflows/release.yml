@@ -380,7 +380,7 @@ jobs:
   #     published as .tar.gz because UPX cannot pack Mach-O).
   # --------------------------------------------------------------------------
   build-gui-darwin:
-    name: Build GUI (${{ matrix.os }})
+    name: Build GUI (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -388,12 +388,18 @@ jobs:
       matrix:
         include:
           - os: macos-15-intel
+            label: macos-amd64
             goarch: amd64
-          - os: macos-15
+            cgo_flags: ""
+          - os: macos-15-intel
+            label: macos-arm64-cross
             goarch: arm64
+            cgo_flags: "-arch arm64"
     env:
       CGO_ENABLED: "1"
       GOARCH: ${{ matrix.goarch }}
+      CGO_CFLAGS: ${{ matrix.cgo_flags }}
+      CGO_LDFLAGS: ${{ matrix.cgo_flags }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -629,7 +635,7 @@ jobs:
           retention-days: 7
 
   build-installer-darwin:
-    name: Build installer (${{ matrix.os }})
+    name: Build installer (${{ matrix.label }})
     needs: [build, build-gui-darwin]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -638,8 +644,10 @@ jobs:
       matrix:
         include:
           - os: macos-15-intel
+            label: macos-amd64
             goarch: amd64
-          - os: macos-15
+          - os: macos-15-intel
+            label: macos-arm64-cross
             goarch: arm64
     steps:
       - name: Checkout
