@@ -11,18 +11,19 @@ require (
 	github.com/docker/go-sdk/client v0.1.0-alpha014
 	github.com/docker/go-sdk/container v0.1.0-alpha017
 	github.com/docker/go-sdk/image v0.1.0-alpha016
-	github.com/moby/moby/api v1.52.0
-	github.com/moby/moby/client v0.1.0
+	github.com/moby/moby/api v1.57.0
+	github.com/moby/moby/client v0.6.3
 	github.com/pkg/sftp v1.13.12
 	github.com/ubuntu/gowsl v0.0.0-20251112191800-0ef2623cc8fb
 	golang.org/x/crypto v0.59.0
+	golang.org/x/sys v0.50.0
 	modernc.org/sqlite v1.62.0
 )
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
 	fyne.io/systray v1.12.3-0.20260810170012-af4e8e793ec4 // indirect
-	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
+	github.com/Azure/go-ansiterm v0.0.0-20261006220739-8c912ac31dd4 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/FyshOS/fancyfs v0.0.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -44,7 +45,7 @@ require (
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/go-connections v0.6.0 // indirect
+	github.com/docker/go-connections v0.8.2 // indirect
 	github.com/docker/go-sdk/config v0.1.0-alpha014 // indirect
 	github.com/docker/go-sdk/context v0.1.0-alpha014 // indirect
 	github.com/docker/go-sdk/network v0.1.0-alpha014 // indirect
@@ -108,7 +109,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.41.0 // indirect
 	golang.org/x/image v0.43.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
-	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.80.1 // indirect
