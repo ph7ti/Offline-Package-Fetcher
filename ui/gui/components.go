@@ -132,22 +132,22 @@ func (u *UI) appBar() fyne.CanvasObject {
 			u.showSettings()
 		}
 	})
-	aboutAction := widget.NewToolbarAction(theme.NewColoredResource(theme.InfoIcon(), colorOnHeader), u.showAbout)
 	if u.running {
 		homeAction.Disable()
 		historyAction.Disable()
 		settingsAction.Disable()
 	}
-	nav := widget.NewToolbar(homeAction, historyAction, settingsAction, aboutAction)
+	nav := widget.NewToolbar(homeAction, historyAction, settingsAction)
+	aboutButton := widget.NewButtonWithIcon("", theme.NewColoredResource(theme.InfoIcon(), colorOnHeader), u.showAbout)
+	aboutButton.Importance = widget.LowImportance
 	themeButton := widget.NewButtonWithIcon(i18n.T("Tema"), theme.ColorPaletteIcon(), u.toggleTheme)
 	if u.running {
 		themeButton.Disable()
 	}
-	right := container.NewHBox(nav, hSpace(8), themeButton)
+	right := container.NewHBox(nav, hSpace(4), aboutButton, hSpace(8), themeButton)
 
-	bar := container.NewBorder(nil, nil, hSpace(16), hSpace(16),
-		container.NewHBox(left, layout.NewSpacer(), right))
-	padded := container.NewBorder(vSpace(8), vSpace(8), nil, nil, bar)
+	bar := container.NewBorder(nil, nil, left, right)
+	padded := container.NewBorder(vSpace(8), vSpace(8), hSpace(16), hSpace(16), bar)
 	return container.NewStack(barBackground, padded)
 }
 
