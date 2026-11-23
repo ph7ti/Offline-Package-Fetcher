@@ -357,7 +357,6 @@ jobs:
           rm -f cmd/opf-gui/rsrc_windows_arm64.syso
           "$(go env GOPATH)/bin/fyne-cross" windows -arch=arm64 \
             -name opf-gui -app-id org.opf.gui -icon images/icon.png \
-            -ldflags "-X opf/internal/version.Commit=${{ github.sha }}" \
             -env GOTOOLCHAIN=auto ./cmd/opf-gui
           unzip -o fyne-cross/dist/windows-arm64/opf-gui.zip -d fyne-cross/dist/windows-arm64
           mkdir -p dist
