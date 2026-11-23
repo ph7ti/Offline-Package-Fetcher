@@ -526,7 +526,11 @@ func run(args []string) error {
 
 	sessaoPipeline := sessao
 	if preview != nil {
-		sessaoPipeline = &core.Sessao{ID: preview.SessionID}
+		storedSession, loadErr := repo.ObterSessao(ctx, preview.SessionID)
+		if loadErr != nil {
+			return loadErr
+		}
+		sessaoPipeline = storedSession
 	}
 	result, err := core.ExecutarPipeline(ctx, core.PipelineConfig{
 		Repo:           repo,

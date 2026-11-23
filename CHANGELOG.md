@@ -32,6 +32,13 @@ Package diff and installed-version reports.
 - Pipeline pre-check now compares versions: a package already installed is kept
   for download/install when a newer candidate exists.
 
+### Fixed
+
+- Previewed sessions now reload the stored target metadata before validation,
+  so a Package diff → Proceed run reaches the installer with the detected
+  target OS/version instead of failing with `SO de destino não informado`
+  (`target OS not provided`).
+
 ### Changed
 
 - New visual identity: the OPF mascot (golden retriever with the OPF cap and a Linux package box) replaces the previous box/lock icon. The 1600 px master, multi-size `.ico`, `.icns`, Linux 256 px desktop icon, Fyne embedded icon and Windows `.syso` resources were regenerated from `images/OPF_Icon.png`; the editable vector is kept in `images/OPF_Icon.svg`.

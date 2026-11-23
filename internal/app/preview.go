@@ -149,10 +149,14 @@ func (s *Service) RunPreviewed(ctx context.Context, preview *PackagePreview, rep
 	if err := s.savePreview(ctx, preview); err != nil {
 		return nil, err
 	}
+	stored, err := s.repo.ObterSessao(ctx, preview.SessionID)
+	if err != nil {
+		return nil, err
+	}
 	cfg := s.pipelineConfig(reporter)
 	cfg.ResumeFrom = 2
 	cfg.UpgradeRoots = preview.Upgrades
-	return core.ExecutarPipeline(ctx, cfg, &core.Sessao{ID: preview.SessionID})
+	return core.ExecutarPipeline(ctx, cfg, stored)
 }
 
 func packageKey(name string) string {

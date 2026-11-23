@@ -77,6 +77,16 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 	if s == nil {
 		return nil, errors.New(i18n.T("sessão nula"))
 	}
+	// A resumed/previewed run may receive only the session ID. Load the stored
+	// target and execution metadata before validation so target OS/version are
+	// available to the installer path.
+	if cfg.ResumeFrom > 1 && s.ID != 0 {
+		stored, loadErr := cfg.Repo.ObterSessao(ctx, s.ID)
+		if loadErr != nil {
+			return nil, fmt.Errorf(i18n.T("carregar sessão para retomada: %w"), loadErr)
+		}
+		mergeResumeSession(s, stored)
+	}
 	roots := collectPackageRoots(cfg)
 	if len(roots) == 0 {
 		return nil, errors.New(i18n.T("nenhum pacote informado"))
