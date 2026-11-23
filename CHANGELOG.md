@@ -31,6 +31,7 @@ Package diff and installed-version reports.
 
 ### Changed
 
+- New visual identity: the OPF mascot (golden retriever with the OPF cap and a Linux package box) replaces the previous box/lock icon. The 1600 px master, multi-size `.ico`, `.icns`, Linux 256 px desktop icon, Fyne embedded icon and Windows `.syso` resources were regenerated from `images/OPF_Icon.png`; the editable vector is kept in `images/OPF_Icon.svg`.
 - The GUI, TUI and CLI default to `default` collection when SSH is configured;
   without SSH the mode is forced to `none`.
 - New sessions persist the version preview in the `preview_json` session column
