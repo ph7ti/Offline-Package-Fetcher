@@ -100,5 +100,6 @@
   "URL do repositório deve usar http ou https: %q": "la URL del repositorio debe usar http o https: %q",
   "URL do repositório sem host: %q": "URL del repositorio sin host: %q",
   "URL do repositório não pode conter usuário/senha": "la URL del repositorio no puede contener usuario/contraseña",
-  "URL do repositório não pode conter fragmento": "la URL del repositorio no puede contener un fragmento"
+  "URL do repositório não pode conter fragmento": "la URL del repositorio no puede contener un fragmento",
+  "modo de coleta inválido: %q (use all, default ou none)": "modo de recopilación no válido: %q (use all, default o none)"
 }

@@ -118,5 +118,14 @@
   "Nenhuma atualização de pacote detectada.": "No se detectó ninguna actualización de paquetes.",
   "Pacotes que serão atualizados:": "Paquetes que se actualizarán:",
   "%d pacote(s) serão atualizados. Prosseguir com a instalação? [s/N]: ": "%d paquete(s) se actualizarán. ¿Continuar con la instalación? [s/N]: ",
-  "instalação recusada; sessão abortada (relatório disponível)": "instalación rechazada; sesión abortada (informe disponible)"
+  "instalação recusada; sessão abortada (relatório disponível)": "instalación rechazada; sesión abortada (informe disponible)",
+  "exibe a versão e metadados de build": "muestra la versión y los metadatos de compilación",
+  "arquivo texto com lista de pacotes (um por linha ou separados por vírgula; # inicia comentário)": "archivo de texto con lista de paquetes (uno por línea o separados por comas; # inicia un comentario)",
+  "retoma uma sessão existente pelo ID": "reanuda una sesión existente por ID",
+  "--resume exige um ID de sessão positivo": "--resume requiere un ID de sesión positivo",
+  "ler --pkg-file": "leer --pkg-file",
+  "--pkg-file deve apontar para um arquivo regular": "--pkg-file debe apuntar a un archivo regular",
+  "--pkg-file excede %d bytes": "--pkg-file supera %d bytes",
+  "carregar sessão %d para retomada": "cargar la sesión %d para reanudar",
+  "todos os pacotes já estão instalados no destino": "todos los paquetes ya están instalados en el destino"
 }

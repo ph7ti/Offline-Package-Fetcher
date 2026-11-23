@@ -80,11 +80,13 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 	// A resumed/previewed run may receive only the session ID. Load the stored
 	// target and execution metadata before validation so target OS/version are
 	// available to the installer path.
+	var storedSession *Sessao
 	if cfg.ResumeFrom > 1 && s.ID != 0 {
 		stored, loadErr := cfg.Repo.ObterSessao(ctx, s.ID)
 		if loadErr != nil {
 			return nil, fmt.Errorf(i18n.T("carregar sessão para retomada: %w"), loadErr)
 		}
+		storedSession = stored
 		mergeResumeSession(s, stored)
 	}
 	roots := collectPackageRoots(cfg)
@@ -134,11 +136,13 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		if s.ID == 0 {
 			return nil, errors.New(i18n.T("retomada exige o ID da sessão"))
 		}
-		stored, getErr := cfg.Repo.ObterSessao(ctx, s.ID)
-		if getErr != nil {
-			return nil, fmt.Errorf(i18n.T("carregar sessão para retomada: %w"), getErr)
+		if storedSession == nil {
+			stored, getErr := cfg.Repo.ObterSessao(ctx, s.ID)
+			if getErr != nil {
+				return nil, fmt.Errorf(i18n.T("carregar sessão para retomada: %w"), getErr)
+			}
+			mergeResumeSession(s, stored)
 		}
-		mergeResumeSession(s, stored)
 		s.Status = SessaoEmAndamento
 		if cpRepo, ok := cfg.Repo.(CheckpointRepository); ok {
 			if reopenErr := cpRepo.ReabrirSessao(ctx, s.ID); reopenErr != nil {
@@ -158,14 +162,20 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 			"include_optional": s.IncludeOptional, "pacotes": roots,
 		})
 	}
-	if binder, ok := cfg.Fetcher.(SessionBinder); ok {
-		if bindErr := binder.BindSession(s.ID); bindErr != nil {
-			return nil, fmt.Errorf(i18n.T("vincular sessão ao fetcher: %w"), bindErr)
+	prepared := false
+	alreadyPrepared := false
+	if pf, ok := cfg.Fetcher.(PreparedFetcher); ok && pf.IsPrepared() {
+		alreadyPrepared = true
+		prepared = true
+	}
+	if !alreadyPrepared {
+		if binder, ok := cfg.Fetcher.(SessionBinder); ok {
+			if bindErr := binder.BindSession(s.ID); bindErr != nil {
+				return nil, fmt.Errorf(i18n.T("vincular sessão ao fetcher: %w"), bindErr)
+			}
 		}
 	}
 	persistirPacotesSolicitados(ctx, cfg.Repo, s.ID, roots)
-
-	prepared := false
 	transferConnected := false
 	remoteDir := firstNonEmpty(cfg.RemoteDir, s.RemoteDir)
 	if cfg.Transfer != nil {
@@ -220,13 +230,18 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 	}()
 
 	if cfg.Transfer != nil {
-		tctx, cancel := stageContext(ctx, cfg.StageTimeout)
-		connectErr := connectTransfer(tctx, cfg.Transfer, cfg.SSH, logger)
-		cancel()
-		if connectErr != nil {
-			return nil, fmt.Errorf(i18n.T("conectar SSH ao destino: %w"), connectErr)
+		if conn, ok := cfg.Transfer.(ConnectedTransfer); ok && conn.IsConnected() {
+			transferConnected = true
+			logger.Info("conexão SSH reutilizada")
+		} else {
+			tctx, cancel := stageContext(ctx, cfg.StageTimeout)
+			connectErr := connectTransfer(tctx, cfg.Transfer, cfg.SSH, logger)
+			cancel()
+			if connectErr != nil {
+				return nil, fmt.Errorf(i18n.T("conectar SSH ao destino: %w"), connectErr)
+			}
+			transferConnected = true
 		}
-		transferConnected = true
 		defer func() {
 			if !transferConnected {
 				return
@@ -342,21 +357,38 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 
 	if startStep <= 7 {
 		cp.start(ctx, 3)
-		pctx, cancel := stageContext(ctx, cfg.StageTimeout)
-		prepareErr := cfg.Fetcher.Prepare(pctx, s.TargetOS, s.TargetVersion, s.TargetArch)
-		cancel()
-		if prepareErr != nil {
-			return nil, fmt.Errorf(i18n.T("preparar ambiente isolado: %w"), prepareErr)
+		if !alreadyPrepared {
+			pctx, cancel := stageContext(ctx, cfg.StageTimeout)
+			prepareErr := cfg.Fetcher.Prepare(pctx, s.TargetOS, s.TargetVersion, s.TargetArch)
+			cancel()
+			if prepareErr != nil {
+				return nil, fmt.Errorf(i18n.T("preparar ambiente isolado: %w"), prepareErr)
+			}
+			prepared = true
 		}
-		prepared = true
 		persistExecution(ctx, cfg, s, outDir, remoteDir, logger)
-		logger.Info("ambiente isolado criado")
+		if alreadyPrepared {
+			logger.Info("ambiente isolado reutilizado")
+		} else {
+			logger.Info("ambiente isolado criado")
+		}
 		registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoInfo, i18n.T("ambiente isolado criado"), map[string]any{
-			"metodo_fetch": s.FetchMethod, "arch": s.TargetArch,
+			"metodo_fetch": s.FetchMethod, "arch": s.TargetArch, "reutilizado": alreadyPrepared,
 		})
 		cp.finish(ctx, 3)
 
 		cp.start(ctx, 4)
+		step5Started := false
+		if observerSetter, ok := cfg.Fetcher.(StageObserverSetter); ok {
+			observerSetter.SetStageObserver(func(step int) {
+				if step == 5 && !step5Started {
+					cp.finish(ctx, 4)
+					cp.start(ctx, 5)
+					step5Started = true
+				}
+			})
+			defer observerSetter.SetStageObserver(nil)
+		}
 		dctx, cancelDownload := stageContext(ctx, cfg.StageTimeout)
 		downloaded, downloadErr := downloadRoots(dctx, cfg.Fetcher, roots, s.IncludeOptional)
 		cancelDownload()
@@ -367,8 +399,10 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 			return nil, fmt.Errorf(i18n.T("nenhum artefato retornado para %v"), roots)
 		}
 		artifacts = downloaded
-		cp.finish(ctx, 4)
-		cp.start(ctx, 5)
+		if !step5Started {
+			cp.finish(ctx, 4)
+			cp.start(ctx, 5)
+		}
 		cp.finish(ctx, 5)
 		cp.start(ctx, 6)
 		if clearErr := os.RemoveAll(outDir); clearErr != nil {

@@ -118,5 +118,14 @@
   "Nenhuma atualização de pacote detectada.": "No package upgrade detected.",
   "Pacotes que serão atualizados:": "Packages that will be upgraded:",
   "%d pacote(s) serão atualizados. Prosseguir com a instalação? [s/N]: ": "%d package(s) will be upgraded. Proceed with installation? [y/N]: ",
-  "instalação recusada; sessão abortada (relatório disponível)": "installation declined; session aborted (report available)"
+  "instalação recusada; sessão abortada (relatório disponível)": "installation declined; session aborted (report available)",
+  "exibe a versão e metadados de build": "prints version and build metadata",
+  "arquivo texto com lista de pacotes (um por linha ou separados por vírgula; # inicia comentário)": "text file with package list (one per line or comma-separated; # starts a comment)",
+  "retoma uma sessão existente pelo ID": "resumes an existing session by ID",
+  "--resume exige um ID de sessão positivo": "--resume requires a positive session ID",
+  "ler --pkg-file": "read --pkg-file",
+  "--pkg-file deve apontar para um arquivo regular": "--pkg-file must point to a regular file",
+  "--pkg-file excede %d bytes": "--pkg-file exceeds %d bytes",
+  "carregar sessão %d para retomada": "load session %d for resume",
+  "todos os pacotes já estão instalados no destino": "all packages are already installed on the target"
 }

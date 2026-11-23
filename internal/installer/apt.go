@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"opf/internal/core"
@@ -73,38 +72,16 @@ func (a *AptInstaller) InstallCommand(pkgs []core.PackageArtifact) (string, erro
 	if a.remoteDir == "" {
 		return "", errors.New("diretório remoto da instalação não configurado")
 	}
-	if len(pkgs) == 0 {
-		return "", errors.New("nenhum pacote para instalar")
-	}
-
-	names := make([]string, 0, len(pkgs))
-	seen := make(map[string]struct{}, len(pkgs))
-	for _, pkg := range pkgs {
-		name := filepath.Base(pkg.LocalPath)
-		if name == "" || name == "." || name == ".." {
-			return "", fmt.Errorf("nome de artefato inválido: %q", pkg.LocalPath)
-		}
-		if filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
-			return "", fmt.Errorf("artefato com caminho no nome: %q", name)
-		}
-		if !strings.HasSuffix(name, ".deb") {
-			return "", fmt.Errorf("artefato não é .deb: %q", name)
-		}
-		if strings.ContainsRune(name, 0) || strings.ContainsAny(name, "\r\n") {
-			return "", fmt.Errorf("nome de artefato inválido: %q", name)
-		}
-		if _, ok := seen[name]; ok {
-			return "", fmt.Errorf("artefato duplicado na instalação: %q", name)
-		}
-		seen[name] = struct{}{}
-		names = append(names, shellQuote(name))
+	names, err := validateAndQuoteArtifacts(pkgs, ".deb")
+	if err != nil {
+		return "", err
 	}
 
 	dpkgCommand := "DEBIAN_FRONTEND=noninteractive dpkg -i " + strings.Join(names, " ")
-	aptCommand := "DEBIAN_FRONTEND=noninteractive apt-get install -f -y"
+	aptCommand := "DEBIAN_FRONTEND=noninteractive apt-get install -f -y --no-download"
 
 	// Caso o dpkg encontre dependências ainda não configuradas, executa
-	// apt-get -f para concluir a configuração sem depender de rede.
+	// apt-get -f --no-download para concluir a configuração sem depender de rede.
 	script := fmt.Sprintf(
 		"cd %s && { %s; status=$?; "+
 			"if [ \"$status\" -ne 0 ]; then %s; fi; }",

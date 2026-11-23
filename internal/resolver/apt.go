@@ -23,6 +23,7 @@ type AptResolver struct {
 	exec    core.CommandExecutor
 	arch    string
 	workDir string
+	updated bool
 }
 
 func NewAptResolver(exec core.CommandExecutor, arch, workDir string) *AptResolver {
@@ -31,6 +32,26 @@ func NewAptResolver(exec core.CommandExecutor, arch, workDir string) *AptResolve
 		arch:    arch,
 		workDir: workDir,
 	}
+}
+
+func (r *AptResolver) ensureIndexes(ctx context.Context) error {
+	if r.updated {
+		return nil
+	}
+	// Os índices APT precisam existir antes de apt-cache depends/policy. O update é
+	// feito com Dir::State::lists e Dir::Cache::archives isolados na sessão e
+	// reutilizado nas chamadas seguintes dentro do mesmo ambiente.
+	prepare := [][]string{
+		{"mkdir", "-p", r.listsDir() + "/partial", r.archivesDir() + "/partial"},
+		append([]string{"apt-get"}, append(r.configArgs(), "update")...),
+	}
+	for _, cmd := range prepare {
+		if _, err := r.exec.Exec(ctx, cmd); err != nil {
+			return err
+		}
+	}
+	r.updated = true
+	return nil
 }
 
 func (r *AptResolver) ListDependencies(ctx context.Context, pkg string, includeOptional bool) ([]string, error) {
@@ -44,16 +65,8 @@ func (r *AptResolver) ListDependencies(ctx context.Context, pkg string, includeO
 		return nil, err
 	}
 
-	// Os índices APT precisam existir antes de apt-cache depends. O update é
-	// feito com Dir::State::lists e Dir::Cache::archives isolados na sessão.
-	prepare := [][]string{
-		{"mkdir", "-p", r.listsDir() + "/partial", r.archivesDir() + "/partial"},
-		append([]string{"apt-get"}, append(r.configArgs(), "update")...),
-	}
-	for _, cmd := range prepare {
-		if _, err := r.exec.Exec(ctx, cmd); err != nil {
-			return nil, fmt.Errorf("preparar índices APT isolados: %w", err)
-		}
+	if err := r.ensureIndexes(ctx); err != nil {
+		return nil, fmt.Errorf("preparar índices APT isolados: %w", err)
 	}
 
 	cmd := append([]string{"apt-cache"}, r.configArgs()...)
@@ -96,14 +109,8 @@ func (r *AptResolver) ListCandidates(ctx context.Context, pkgs []string, _ bool)
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
-	prepare := [][]string{
-		{"mkdir", "-p", r.listsDir() + "/partial", r.archivesDir() + "/partial"},
-		append([]string{"apt-get"}, append(r.configArgs(), "update")...),
-	}
-	for _, cmd := range prepare {
-		if _, err := r.exec.Exec(ctx, cmd); err != nil {
-			return nil, fmt.Errorf("preparar índices APT para versões candidatas: %w", err)
-		}
+	if err := r.ensureIndexes(ctx); err != nil {
+		return nil, fmt.Errorf("preparar índices APT para versões candidatas: %w", err)
 	}
 	cmd := append([]string{"apt-cache"}, r.configArgs()...)
 	cmd = append(cmd, "policy")

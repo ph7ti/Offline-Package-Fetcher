@@ -25,7 +25,7 @@ func TestYumDnfInstallerInstallCommand(t *testing.T) {
 		"cd '/var/tmp/opf'",
 		"if command -v dnf >/dev/null 2>&1; then PM=dnf",
 		"then PM=yum",
-		"$PM localinstall -y 'vim-enhanced-7.4.629-8.el7_9.x86_64.rpm' 'vim-common-7.4.629-8.el7_9.x86_64.rpm'",
+		"$PM localinstall -y --disablerepo='*' 'vim-enhanced-7.4.629-8.el7_9.x86_64.rpm' 'vim-common-7.4.629-8.el7_9.x86_64.rpm'",
 	} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("comando sem %q: %s", want, cmd)

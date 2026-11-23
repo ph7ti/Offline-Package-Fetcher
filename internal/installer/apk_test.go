@@ -23,7 +23,7 @@ func TestApkInstallerInstallCommand(t *testing.T) {
 	}
 	for _, want := range []string{
 		"cd '/tmp/opf-apk'",
-		"apk add --allow-untrusted 'vim-9.1.0707-r0.apk' 'vim-common-9.1.0707-r0.apk'",
+		"apk add --no-network --allow-untrusted 'vim-9.1.0707-r0.apk' 'vim-common-9.1.0707-r0.apk'",
 	} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("comando sem %q: %s", want, cmd)

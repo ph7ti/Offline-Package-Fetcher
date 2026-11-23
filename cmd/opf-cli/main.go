@@ -20,14 +20,9 @@ import (
 
 	opfapp "opf/internal/app"
 	"opf/internal/core"
-	"opf/internal/fetcher"
 	"opf/internal/i18n"
-	"opf/internal/inspector"
-	"opf/internal/installer"
 	"opf/internal/observability"
-	"opf/internal/resolver"
-	"opf/internal/store"
-	"opf/internal/transfer"
+	"opf/internal/version"
 )
 
 func main() {
@@ -120,6 +115,7 @@ func run(args []string) error {
 	}
 
 	fs.String("lang", i18n.SettingAuto, i18n.T("idioma da interface: auto, en, pt-BR ou es"))
+	showVersion := fs.Bool("version", false, i18n.T("exibe a versão e metadados de build"))
 	target := fs.String("target", "", i18n.T("destino no formato distro:versao (ex.: ubuntu:22.04, centos:7, alpine:3.20)"))
 	arch := fs.String("arch", "", i18n.T("arquitetura do destino (ex.: amd64 ou x86_64)"))
 	var packages []string
@@ -131,6 +127,8 @@ func run(args []string) error {
 		}
 		return nil
 	})
+	pkgFile := fs.String("pkg-file", "", i18n.T("arquivo texto com lista de pacotes (um por linha ou separados por vírgula; # inicia comentário)"))
+	resumeID := fs.Int64("resume", 0, i18n.T("retoma uma sessão existente pelo ID"))
 	forceReinstall := fs.Bool("force-reinstall", false, i18n.T("ignora o pré-check e reinstala pacotes já presentes"))
 	versionReport := fs.String("version-report", "", i18n.T("coleta de versões instaladas: all, default ou none"))
 	imageOverride := fs.String("image", "", i18n.T("imagem Docker alternativa (ex.: opf/centos-7:f3)"))
@@ -204,14 +202,60 @@ func run(args []string) error {
 	if fs.NArg() > 0 {
 		return errors.New(i18n.T("argumentos inesperados: %s", strings.Join(fs.Args(), " ")))
 	}
-	if len(packages) == 0 {
-		return errors.New(i18n.T("--pkg é obrigatório"))
+	if *showVersion {
+		info := version.Current()
+		fmt.Printf("opf-cli %s (%s, %s)\n", info.Version, info.Commit, info.ReleaseDate)
+		return nil
+	}
+	setFlags := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
+	if setFlags["resume"] && *resumeID <= 0 {
+		return errors.New(i18n.T("--resume exige um ID de sessão positivo"))
+	}
+	if *pkgFile != "" {
+		filePkgs, fileErr := loadPackageFile(*pkgFile)
+		if fileErr != nil {
+			return fileErr
+		}
+		packages = append(packages, filePkgs...)
 	}
 	if *outDir == "" {
 		return errors.New(i18n.T("--out não pode ser vazio"))
 	}
 	if *dbPath == "" {
 		return errors.New(i18n.T("--db não pode ser vazio"))
+	}
+	if *resumeID > 0 {
+		resumeCtx, resumeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		meta, metaErr := opfapp.LoadResumeMetadata(resumeCtx, *dbPath, *resumeID)
+		resumeCancel()
+		if metaErr != nil {
+			return fmt.Errorf("%s: %w", i18n.T("carregar sessão %d para retomada", *resumeID), metaErr)
+		}
+		if strings.TrimSpace(*target) == "" && meta.TargetOS != "" && meta.TargetVersion != "" {
+			*target = meta.TargetOS + ":" + meta.TargetVersion
+		}
+		if strings.TrimSpace(*arch) == "" && meta.TargetArch != "" {
+			*arch = meta.TargetArch
+		}
+		if !setFlags["fetch-method"] && meta.FetchMethod != "" {
+			*fetchMethod = meta.FetchMethod
+		}
+		if strings.TrimSpace(*imageOverride) == "" && meta.Image != "" {
+			*imageOverride = meta.Image
+		}
+		if strings.TrimSpace(*wslDistro) == "" && meta.WSLDistro != "" {
+			*wslDistro = meta.WSLDistro
+		}
+		if strings.TrimSpace(*remoteDir) == "" && meta.RemoteDir != "" {
+			*remoteDir = meta.RemoteDir
+		}
+		if len(packages) == 0 && len(meta.Packages) > 0 {
+			packages = append(packages, meta.Packages...)
+		}
+	}
+	if len(packages) == 0 {
+		return errors.New(i18n.T("--pkg é obrigatório"))
 	}
 	if *assumeYes && !*installAfter {
 		return errors.New(i18n.T("--yes exige --install"))
@@ -232,15 +276,15 @@ func run(args []string) error {
 	if *versionReport == "" && *sshHost == "" {
 		reportMode = core.VersionReportNone
 	}
+	if *resumeID > 0 {
+		reportMode = core.VersionReportNone
+	}
 	if reportMode != core.VersionReportNone && *sshHost == "" {
 		return errors.New(i18n.T("--version-report all/default exige --ssh-host"))
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	setFlags := make(map[string]bool)
-	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
 
-	var transferManager core.TransferManager
 	var sshConfig core.SSHConfig
 	var sshPasswordValue string
 	if *sshHost == "" {
@@ -297,7 +341,6 @@ func run(args []string) error {
 		if len(jumps) > 0 {
 			logger.Warn(i18n.T("pontes SSH configuradas; credenciais ficam apenas em memória"))
 		}
-		transferManager = transfer.NewSSHTransferManager()
 	}
 
 	targetWasEmpty := strings.TrimSpace(*target) == ""
@@ -378,184 +421,92 @@ func run(args []string) error {
 		return err
 	}
 
-	var packageInspector core.PackageInspector
-	if transferManager != nil {
-		var inspectErr error
-		packageInspector, inspectErr = inspector.New(family, transferManager)
-		if inspectErr != nil {
-			return inspectErr
-		}
+	if *useSudo && sshPasswordValue == "" {
+		return errors.New(i18n.T("--sudo exige --ssh-password/OPF_SSH_PASSWORD para autenticar o sudo com a senha do usuário SSH"))
 	}
-
-	var installExecutor core.InstallExecutor
 	var confirmInstall core.InstallConfirmation
-	var installOptions []installer.Option
-	if *useSudo {
-		if sshPasswordValue == "" {
-			return errors.New(i18n.T("--sudo exige --ssh-password/OPF_SSH_PASSWORD para autenticar o sudo com a senha do usuário SSH"))
-		}
-		installOptions = append(installOptions, installer.WithSudoPassword(sshPasswordValue))
-	}
 	if *installAfter {
-		switch family {
-		case "rpm":
-			installExecutor = installer.NewYumDnfInstaller(installOptions...)
-		case "apk":
-			installExecutor = installer.NewApkInstaller(installOptions...)
-		default:
-			installExecutor = installer.NewAptInstaller(installOptions...)
-		}
 		confirmInstall = func(_ context.Context, artifacts []core.PackageArtifact) (bool, error) {
 			return confirmInstallation(os.Stdin, os.Stdout, len(artifacts), *sshUser+"@"+*sshHost, *assumeYes)
 		}
 	}
 
-	repo, err := store.Open(*dbPath)
-	if err != nil {
-		return err
-	}
-	defer repo.Close()
-
-	syslogSink, err := observability.NewSyslogSink(observability.SyslogConfig{
-		Enabled: *syslogEnabled, Host: *syslogHost, Port: *syslogPort,
-		Proto: *syslogProto, Tag: *syslogTag, Logger: logger,
-	})
-	if err != nil {
-		return fmt.Errorf("%s: %w", i18n.T("configurar syslog"), err)
-	}
-	if syslogSink != nil {
-		defer func() {
-			closeCtx, closeCancel := context.WithTimeout(context.Background(), 3*time.Second)
-			_ = syslogSink.Close(closeCtx)
-			closeCancel()
-		}()
-	}
-
-	fetcherOptions := []fetcher.Option{
-		fetcher.WithLogger(logger),
-		fetcher.WithResolverFactory(func(exec core.CommandExecutor, arch, workDir string) core.DependencyResolver {
-			switch family {
-			case "rpm":
-				return resolver.NewYumDnfResolver(exec, arch, workDir)
-			case "apk":
-				return resolver.NewApkResolver(exec, arch, workDir)
-			default:
-				return resolver.NewAptResolver(exec, arch, workDir)
-			}
-		}),
-	}
-	if strings.TrimSpace(*imageOverride) != "" {
-		fetcherOptions = append(fetcherOptions, fetcher.WithImage(strings.TrimSpace(*imageOverride)))
-	}
-	if len(repositories) > 0 {
-		fetcherOptions = append(fetcherOptions, fetcher.WithRepositories(repositories))
-	}
-	var packageFetcher core.PackageFetcher
-	if method == "wsl" {
-		wslOptions := []fetcher.WSLFetcherOption{
-			fetcher.WithWSLDistro(*wslDistro),
-			fetcher.WithWSLResolverFactory(func(exec core.CommandExecutor, arch, workDir string) core.DependencyResolver {
-				return resolver.NewAptResolver(exec, arch, workDir)
-			}),
-			fetcher.WithWSLTempDir(*tempDir),
-			fetcher.WithWSLLogger(logger),
-		}
-		if len(repositories) > 0 {
-			wslOptions = append(wslOptions, fetcher.WithWSLRepositories(repositories))
-		}
-		packageFetcher = fetcher.NewWSLFetcher(wslOptions...)
-	} else {
-		packageFetcher = fetcher.NewDockerFetcher(fetcherOptions...)
-	}
-
-	sessao := &core.Sessao{
+	svc, err := opfapp.New(opfapp.Config{
+		StorePath:       *dbPath,
+		OutputBaseDir:   *outDir,
+		TempDir:         *tempDir,
 		TargetOS:        targetOS,
 		TargetVersion:   targetVersion,
 		TargetArch:      strings.ToLower(*arch),
-		FetchMethod:     method,
+		Packages:        packages,
 		IncludeOptional: *withOptional,
+		FetchMethod:     method,
+		Image:           strings.TrimSpace(*imageOverride),
+		WSLDistro:       *wslDistro,
+		SSH:             sshConfig,
+		RemoteDir:       *remoteDir,
+		Repositories:    repositories,
+		ForceReinstall:  *forceReinstall,
+		VersionReport:   reportMode,
+		Logger:          logger,
+		Install:         *installAfter,
+		UseSudo:         *useSudo,
+		SudoPassword:    sshPasswordValue,
+		ConfirmInstall:  confirmInstall,
+		SyslogEnabled:   *syslogEnabled,
+		SyslogHost:      *syslogHost,
+		SyslogPort:      *syslogPort,
+		SyslogProto:     *syslogProto,
+		SyslogTag:       *syslogTag,
+	})
+	if err != nil {
+		return err
 	}
+	defer svc.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	var preview *opfapp.PackagePreview
-	resumeFrom := 0
-	if reportMode != core.VersionReportNone {
-		previewService, previewErr := opfapp.New(opfapp.Config{
-			StorePath: *dbPath, OutputBaseDir: *outDir, TempDir: *tempDir,
-			TargetOS: targetOS, TargetVersion: targetVersion, TargetArch: strings.ToLower(*arch),
-			Packages: packages, IncludeOptional: *withOptional, FetchMethod: method,
-			Image: *imageOverride, WSLDistro: *wslDistro, SSH: sshConfig, RemoteDir: *remoteDir,
-			Repositories: repositories, ForceReinstall: *forceReinstall, Logger: logger,
-			Install: *installAfter, UseSudo: *useSudo, SudoPassword: sshPasswordValue,
-			ConfirmInstall: confirmInstall, VersionReport: reportMode,
-			SyslogEnabled: *syslogEnabled, SyslogHost: *syslogHost, SyslogPort: *syslogPort,
-			SyslogProto: *syslogProto, SyslogTag: *syslogTag,
-		})
+	var result *core.PipelineResult
+	switch {
+	case *resumeID > 0:
+		result, err = svc.Resume(ctx, *resumeID)
+	case reportMode != core.VersionReportNone:
+		preview, previewErr := svc.PreviewPackageDiff(ctx)
 		if previewErr != nil {
-			return previewErr
-		}
-		preview, previewErr = previewService.PreviewPackageDiff(ctx)
-		if previewErr != nil {
-			_ = previewService.Close()
 			return previewErr
 		}
 		if preview != nil {
 			printPackagePreview(preview)
 			if len(preview.Data.Diff) > 0 && *installAfter && !*assumeYes {
 				if !confirmPackageDiff(os.Stdin, os.Stdout, len(preview.Data.Diff)) {
-					if abortErr := previewService.AbortPreview(ctx, preview); abortErr != nil {
-						_ = previewService.Close()
+					if abortErr := svc.AbortPreview(ctx, preview); abortErr != nil {
 						return abortErr
 					}
 					fmt.Println(i18n.T("instalação recusada; sessão abortada (relatório disponível)"))
-					_ = previewService.Close()
 					if *exportJSON != "" || *exportMarkdown != "" {
-						if reportErr := exportSessionReport(ctx, repo, preview.SessionID, *exportJSON, *exportMarkdown); reportErr != nil {
+						if reportErr := exportSessionReport(ctx, svc, preview.SessionID, *exportJSON, *exportMarkdown); reportErr != nil {
 							return reportErr
 						}
 					}
 					return nil
 				}
 			}
-			resumeFrom = 2
+			result, err = svc.RunPreviewed(ctx, preview, nil)
+		} else {
+			result, err = svc.Run(ctx)
 		}
-		_ = previewService.Close()
+	default:
+		result, err = svc.Run(ctx)
 	}
-
-	sessaoPipeline := sessao
-	if preview != nil {
-		storedSession, loadErr := repo.ObterSessao(ctx, preview.SessionID)
-		if loadErr != nil {
-			return loadErr
-		}
-		sessaoPipeline = storedSession
-	}
-	result, err := core.ExecutarPipeline(ctx, core.PipelineConfig{
-		Repo:           repo,
-		Fetcher:        packageFetcher,
-		Packages:       packages,
-		ForceReinstall: *forceReinstall,
-		UpgradeRoots:   previewUpgrades(preview),
-		ResumeFrom:     resumeFrom,
-		OutputBaseDir:  *outDir,
-		Logger:         logger,
-		Transfer:       transferManager,
-		SSH:            sshConfig,
-		RemoteDir:      *remoteDir,
-		Installer:      installExecutor,
-		ConfirmInstall: confirmInstall,
-		Inspector:      packageInspector,
-		EventSink:      syslogSink,
-		Image:          *imageOverride,
-		WSLDistro:      *wslDistro,
-	}, sessaoPipeline)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("%s\n", i18n.T("sessão %d concluída", result.SessaoID))
+	if result.AllAlreadyInstalled {
+		fmt.Println(i18n.T("todos os pacotes já estão instalados no destino"))
+	}
 	fmt.Printf("%s\n", i18n.T("artefatos: %d", len(result.Artifacts)))
 	fmt.Printf("%s\n", i18n.T("saída: %s", result.OutputDir))
 	fmt.Printf("%s\n", i18n.T("manifesto: %s", result.CaminhoManifesto))
@@ -563,21 +514,8 @@ func run(args []string) error {
 		fmt.Printf("%s\n", i18n.T("destino remoto: %s", result.RemoteDir))
 	}
 	if *exportJSON != "" || *exportMarkdown != "" {
-		relatorio, reportErr := observability.GerarRelatorio(ctx, repo, result.SessaoID)
-		if reportErr != nil {
+		if reportErr := exportSessionReport(ctx, svc, result.SessaoID, *exportJSON, *exportMarkdown); reportErr != nil {
 			return fmt.Errorf("%s: %w", i18n.T("gerar relatório"), reportErr)
-		}
-		if *exportJSON != "" {
-			if err := observability.SalvarJSON(*exportJSON, relatorio); err != nil {
-				return err
-			}
-			fmt.Printf("%s\n", i18n.T("relatório JSON: %s", *exportJSON))
-		}
-		if *exportMarkdown != "" {
-			if err := observability.SalvarMarkdown(*exportMarkdown, relatorio); err != nil {
-				return err
-			}
-			fmt.Printf("%s\n", i18n.T("relatório Markdown: %s", *exportMarkdown))
 		}
 	}
 	if result.Installed {
@@ -912,15 +850,39 @@ func printPackagePreview(preview *opfapp.PackagePreview) {
 	}
 }
 
-func previewUpgrades(preview *opfapp.PackagePreview) map[string]bool {
-	if preview == nil {
-		return nil
+const packageFileLimit = 1 << 20
+
+func loadPackageFile(path string) ([]string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", i18n.T("ler --pkg-file"), err)
 	}
-	return preview.Upgrades
+	if !info.Mode().IsRegular() {
+		return nil, errors.New(i18n.T("--pkg-file deve apontar para um arquivo regular"))
+	}
+	if info.Size() > packageFileLimit {
+		return nil, errors.New(i18n.T("--pkg-file excede %d bytes", packageFileLimit))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", i18n.T("ler --pkg-file"), err)
+	}
+	var out []string
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		if idx := strings.IndexByte(rawLine, '#'); idx >= 0 {
+			rawLine = rawLine[:idx]
+		}
+		for _, item := range strings.Split(rawLine, ",") {
+			if pkg := strings.TrimSpace(item); pkg != "" {
+				out = append(out, pkg)
+			}
+		}
+	}
+	return out, nil
 }
 
-func exportSessionReport(ctx context.Context, repo *store.Store, sessionID int64, jsonPath, mdPath string) error {
-	relatorio, err := observability.GerarRelatorio(ctx, repo, sessionID)
+func exportSessionReport(ctx context.Context, svc *opfapp.Service, sessionID int64, jsonPath, mdPath string) error {
+	relatorio, err := svc.GenerateReport(ctx, sessionID)
 	if err != nil {
 		return err
 	}

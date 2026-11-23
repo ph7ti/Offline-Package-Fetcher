@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"opf/internal/i18n"
 )
 
 // VersionReportMode controls how installed package versions are collected for
@@ -27,7 +29,7 @@ func ParseVersionReportMode(value string) (VersionReportMode, error) {
 	case VersionReportNone:
 		return VersionReportNone, nil
 	default:
-		return "", fmt.Errorf("modo de coleta inválido: %q (use all, default ou none)", value)
+		return "", fmt.Errorf(i18n.T("modo de coleta inválido: %q (use all, default ou none)"), value)
 	}
 }
 
@@ -126,36 +128,28 @@ func compareNumeric(a, b string) int {
 func compareVersionPart(a, b string) int {
 	i, j := 0, 0
 	for i < len(a) || j < len(b) {
-		// A tilde sorts before everything, including the end of the string.
-		if i < len(a) && a[i] == '~' {
-			if j < len(b) && b[j] == '~' {
-				i++
-				j++
-				continue
-			}
-			return -1
-		}
-		if j < len(b) && b[j] == '~' {
-			return 1
-		}
-		// Non-digit segments compare lexically (letters before end).
-		if (i < len(a) && !isDigit(a[i])) || (j < len(b) && !isDigit(b[j])) {
+		// Compare non-digit prefix using dpkg verrevcmp ordering:
+		// '~' < end-of-string < ASCII letters < other non-digit characters.
+		for (i < len(a) && !isDigit(a[i])) || (j < len(b) && !isDigit(b[j])) {
 			var ca, cb byte
-			if i < len(a) && !isDigit(a[i]) {
+			hasA := i < len(a) && !isDigit(a[i])
+			if hasA {
 				ca = a[i]
 				i++
 			}
-			if j < len(b) && !isDigit(b[j]) {
+			hasB := j < len(b) && !isDigit(b[j])
+			if hasB {
 				cb = b[j]
 				j++
 			}
-			if ca != cb {
-				if ca < cb {
+			oa := dpkgCharOrder(ca, hasA)
+			ob := dpkgCharOrder(cb, hasB)
+			if oa != ob {
+				if oa < ob {
 					return -1
 				}
 				return 1
 			}
-			continue
 		}
 		// Numeric segments compare by value.
 		si, sj := i, j
@@ -181,6 +175,19 @@ func compareVersionPart(a, b string) int {
 		}
 	}
 	return 0
+}
+
+func dpkgCharOrder(c byte, present bool) int {
+	if !present {
+		return 0
+	}
+	if c == '~' {
+		return -1
+	}
+	if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+		return int(c)
+	}
+	return int(c) + 256
 }
 
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }

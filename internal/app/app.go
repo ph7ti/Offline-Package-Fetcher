@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"opf/internal/core"
@@ -64,6 +65,10 @@ type Service struct {
 	inspect    core.PackageInspector
 	eventSink  core.EventSink
 	sinkCloser core.EventSinkCloser
+
+	warmMu      sync.Mutex
+	warmPreview bool
+	warmTimer   *time.Timer
 }
 
 func New(cfg Config) (*Service, error) {
@@ -218,6 +223,9 @@ func (s *Service) Close() error {
 		return nil
 	}
 	var errs []error
+	if err := s.cleanupWarmResources(); err != nil {
+		errs = append(errs, err)
+	}
 	if s.sinkCloser != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		if err := s.sinkCloser.Close(ctx); err != nil {
@@ -292,6 +300,59 @@ func (s *Service) ListPackages(ctx context.Context, sessaoID int64) ([]core.Paco
 
 func (s *Service) ListEvents(ctx context.Context, sessaoID int64) ([]core.Evento, error) {
 	return s.repo.ListarEventos(ctx, sessaoID)
+}
+
+func (s *Service) GenerateReport(ctx context.Context, sessaoID int64) (*observability.Relatorio, error) {
+	return observability.GerarRelatorio(ctx, s.repo, sessaoID)
+}
+
+// ResumeMetadata holds non-secret fields recovered from an existing session in
+// SQLite so callers like opf-cli can resume by ID without re-specifying target
+// and package flags.
+type ResumeMetadata struct {
+	TargetOS      string
+	TargetVersion string
+	TargetArch    string
+	FetchMethod   string
+	Image         string
+	WSLDistro     string
+	RemoteDir     string
+	Packages      []string
+}
+
+// LoadResumeMetadata reads target and requested package metadata for an
+// existing session ID from SQLite.
+func LoadResumeMetadata(ctx context.Context, storePath string, sessionID int64) (*ResumeMetadata, error) {
+	if sessionID <= 0 {
+		return nil, fmt.Errorf("ID de sessão inválido: %d", sessionID)
+	}
+	repo, err := store.Open(storePath)
+	if err != nil {
+		return nil, err
+	}
+	defer repo.Close()
+
+	sessao, err := repo.ObterSessao(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	meta := &ResumeMetadata{
+		TargetOS:      sessao.TargetOS,
+		TargetVersion: sessao.TargetVersion,
+		TargetArch:    sessao.TargetArch,
+		FetchMethod:   sessao.FetchMethod,
+		Image:         sessao.ImagemDocker,
+		WSLDistro:     sessao.WSLDistro,
+		RemoteDir:     sessao.RemoteDir,
+	}
+	if solicitados, listErr := repo.ListarPacotesSolicitados(ctx, sessionID); listErr == nil {
+		for _, p := range solicitados {
+			if p.Nome != "" {
+				meta.Packages = append(meta.Packages, p.Nome)
+			}
+		}
+	}
+	return meta, nil
 }
 
 func (s *Service) newSession() *core.Sessao {

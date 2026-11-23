@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -20,9 +22,10 @@ import (
 )
 
 const (
-	defaultSSHPort    = 22
-	defaultSSHTimeout = 15 * time.Second
-	sshCopyBufferSize = 64 * 1024
+	defaultSSHPort       = 22
+	defaultSSHTimeout    = 15 * time.Second
+	sshCopyBufferSize    = 64 * 1024
+	maxUploadConcurrency = 4
 )
 
 // SSHConfig groups SSH connection parameters, including optional jump hosts.
@@ -69,6 +72,11 @@ func NewSSHTransferManager() *SSHTransferManager {
 
 func (m *SSHTransferManager) SetProgress(progress ProgressFunc) {
 	m.progress = progress
+}
+
+// IsConnected reports whether an SSH and SFTP session is currently active.
+func (m *SSHTransferManager) IsConnected() bool {
+	return m.client != nil && m.sftp != nil
 }
 
 func (m *SSHTransferManager) Connect(ctx context.Context, cfg SSHConfig) error {
@@ -137,14 +145,14 @@ func (m *SSHTransferManager) Upload(ctx context.Context, files []string, remoteD
 		return fmt.Errorf("criar diretório remoto %q: %w", remoteDir, err)
 	}
 
-	var total int64
-	for _, localPath := range files {
-		if info, statErr := os.Stat(localPath); statErr == nil && info.Mode().IsRegular() {
-			total += info.Size()
-		}
+	type uploadJob struct {
+		localPath  string
+		remotePath string
+		name       string
 	}
-	var written int64
+	var total int64
 	seen := make(map[string]struct{}, len(files))
+	jobs := make([]uploadJob, 0, len(files))
 	for _, localPath := range files {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -164,18 +172,70 @@ func (m *SSHTransferManager) Upload(ctx context.Context, files []string, remoteD
 			return fmt.Errorf("arquivo duplicado no envio: %q", name)
 		}
 		seen[name] = struct{}{}
+		total += info.Size()
+		jobs = append(jobs, uploadJob{
+			localPath:  localPath,
+			remotePath: path.Join(remoteDir, name),
+			name:       name,
+		})
+	}
 
-		remotePath := path.Join(remoteDir, name)
-		if err := uploadFile(ctx, m.sftp, localPath, remotePath, func(n int64) {
-			written += n
-			if m.progress != nil {
-				m.progress("upload", written, total)
-			}
-		}); err != nil {
-			return fmt.Errorf("enviar %q: %w", name, err)
+	workers := maxUploadConcurrency
+	if len(jobs) < workers {
+		workers = len(jobs)
+	}
+
+	uploadCtx, cancelUpload := context.WithCancel(ctx)
+	defer cancelUpload()
+
+	var (
+		written    atomic.Int64
+		progressMu sync.Mutex
+		errOnce    sync.Once
+		firstErr   error
+	)
+	recordErr := func(err error) {
+		errOnce.Do(func() {
+			firstErr = err
+			cancelUpload()
+		})
+	}
+	onWritten := func(n int64) {
+		cur := written.Add(n)
+		if m.progress != nil {
+			progressMu.Lock()
+			m.progress("upload", cur, total)
+			progressMu.Unlock()
 		}
 	}
-	return nil
+
+	jobCh := make(chan uploadJob, len(jobs))
+	for _, job := range jobs {
+		jobCh <- job
+	}
+	close(jobCh)
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobCh {
+				if uploadCtx.Err() != nil {
+					return
+				}
+				if err := uploadFile(uploadCtx, m.sftp, job.localPath, job.remotePath, onWritten); err != nil {
+					recordErr(fmt.Errorf("enviar %q: %w", job.name, err))
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return firstErr
+	}
+	return ctx.Err()
 }
 
 func (m *SSHTransferManager) VerifyChecksums(ctx context.Context, manifestPath, remoteDir string) error {
@@ -257,6 +317,16 @@ func (m *SSHTransferManager) runCommand(ctx context.Context, cmd string, input [
 }
 
 func (m *SSHTransferManager) RunCommandStream(ctx context.Context, cmd string, stdout, stderr io.Writer) error {
+	return m.runCommandStream(ctx, cmd, nil, stdout, stderr)
+}
+
+// RunCommandStreamWithInput streams remote command stdout/stderr while feeding
+// stdin (used by sudo -S with live logs without exposing the password in argv).
+func (m *SSHTransferManager) RunCommandStreamWithInput(ctx context.Context, cmd string, input []byte, stdout, stderr io.Writer) error {
+	return m.runCommandStream(ctx, cmd, input, stdout, stderr)
+}
+
+func (m *SSHTransferManager) runCommandStream(ctx context.Context, cmd string, input []byte, stdout, stderr io.Writer) error {
 	if m.client == nil {
 		return errors.New("transferência SSH não conectada")
 	}
@@ -274,6 +344,9 @@ func (m *SSHTransferManager) RunCommandStream(ctx context.Context, cmd string, s
 		return fmt.Errorf("abrir sessão SSH: %w", err)
 	}
 	defer session.Close()
+	if input != nil {
+		session.Stdin = bytes.NewReader(input)
+	}
 	session.Stdout = stdout
 	session.Stderr = stderr
 

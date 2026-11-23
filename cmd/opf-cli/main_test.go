@@ -448,3 +448,36 @@ func TestApplyLanguageFlagInvalidUsesFallbackLanguage(t *testing.T) {
 		t.Fatalf("erro = %v, esperava mensagem em espanhol", err)
 	}
 }
+
+func TestRunVersionFlag(t *testing.T) {
+	if err := run([]string{"--version"}); err != nil {
+		t.Fatalf("--version retornou erro: %v", err)
+	}
+}
+
+func TestLoadPackageFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pkgs.txt")
+	content := "# pacotes principais\nvim\ncurl, git # inline comment\n\n  htop  \n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("escrever arquivo: %v", err)
+	}
+	pkgs, err := loadPackageFile(path)
+	if err != nil {
+		t.Fatalf("loadPackageFile: %v", err)
+	}
+	want := "vim,curl,git,htop"
+	if got := strings.Join(pkgs, ","); got != want {
+		t.Fatalf("pacotes = %q, esperava %q", got, want)
+	}
+	if _, err := loadPackageFile(dir); err == nil {
+		t.Fatal("esperava erro ao passar diretório para --pkg-file")
+	}
+}
+
+func TestResumeFlagRejectsNonPositive(t *testing.T) {
+	err := run([]string{"--resume", "0", "--pkg", "vim", "--target", "ubuntu:22.04", "--arch", "amd64"})
+	if err == nil || !strings.Contains(err.Error(), "--resume") {
+		t.Fatalf("esperava erro de --resume inválido, obteve %v", err)
+	}
+}

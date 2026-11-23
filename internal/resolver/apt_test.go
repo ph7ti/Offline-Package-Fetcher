@@ -215,3 +215,31 @@ func TestParseAptCacheDependsEmpty(t *testing.T) {
 		t.Fatal("esperava erro para saída vazia")
 	}
 }
+
+func TestAptResolverUpdatesIndexesOnce(t *testing.T) {
+	exec := &fakeExec{output: loadVimFixture(t)}
+	r := NewAptResolver(exec, "amd64", "/tmp/opf-7")
+
+	if _, err := r.ListDependencies(context.Background(), "vim", false); err != nil {
+		t.Fatalf("primeira ListDependencies: %v", err)
+	}
+	if _, err := r.ListDependencies(context.Background(), "curl", false); err != nil {
+		t.Fatalf("segunda ListDependencies: %v", err)
+	}
+	if _, err := r.ListDependencies(context.Background(), "git", false); err != nil {
+		t.Fatalf("terceira ListDependencies: %v", err)
+	}
+
+	updates := 0
+	for _, call := range exec.calls {
+		if len(call) > 0 && call[0] == "apt-get" && call[len(call)-1] == "update" {
+			updates++
+		}
+	}
+	if updates != 1 {
+		t.Fatalf("apt-get update chamado %d vezes, esperava 1", updates)
+	}
+	if len(exec.calls) != 5 {
+		t.Fatalf("esperava 5 chamadas (mkdir, update, 3x depends), obteve %d", len(exec.calls))
+	}
+}

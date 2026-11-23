@@ -1,6 +1,8 @@
 package fetcher
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -686,5 +688,136 @@ func TestDockerFetcherPrepareAppliesAPKRepositoryPolicy(t *testing.T) {
 	}
 	if !res.untrusted {
 		t.Fatal("resolver APK deveria receber SetAllowUntrusted(true)")
+	}
+}
+
+type archiveFakeRuntime struct {
+	*fakeRuntime
+	archiveBytes []byte
+	archiveCalls int
+}
+
+func (r *archiveFakeRuntime) CopyArchiveFromContainer(_ context.Context, _ string) (io.ReadCloser, error) {
+	r.archiveCalls++
+	return io.NopCloser(bytes.NewReader(r.archiveBytes)), nil
+}
+
+func buildTarArchive(t *testing.T, entries []struct {
+	name     string
+	content  string
+	typeflag byte
+}) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, e := range entries {
+		tf := e.typeflag
+		if tf == 0 {
+			tf = tar.TypeReg
+		}
+		hdr := &tar.Header{
+			Name:     e.name,
+			Mode:     0o644,
+			Size:     int64(len(e.content)),
+			Typeflag: tf,
+		}
+		if tf == tar.TypeSymlink {
+			hdr.Size = 0
+			hdr.Linkname = "/etc/passwd"
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatalf("WriteHeader(%q): %v", e.name, err)
+		}
+		if tf == tar.TypeReg {
+			if _, err := tw.Write([]byte(e.content)); err != nil {
+				t.Fatalf("Write(%q): %v", e.name, err)
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Close tar: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestDockerFetcherBulkArchiveCopyAndTarSlipGuard(t *testing.T) {
+	vimContent := "conteudo-vim-bulk"
+	libcContent := "conteudo-libc6-bulk"
+	inventory := strings.Join([]string{
+		"vim_9.0_amd64.deb\tvim\t9.0\tamd64\t" + debHash(vimContent),
+		"libc6_2.35_amd64.deb\tlibc6\t2.35\tamd64\t" + debHash(libcContent),
+	}, "\n")
+
+	archive := buildTarArchive(t, []struct {
+		name     string
+		content  string
+		typeflag byte
+	}{
+		{name: "opf-42/", typeflag: tar.TypeDir},
+		{name: "../escape.deb", content: "malicioso"},
+		{name: "opf-42/symlink.deb", typeflag: tar.TypeSymlink},
+		{name: "opf-42/lists/vim_9.0_amd64.deb", content: "subdiretorio-errado"},
+		{name: "opf-42/unexpected.deb", content: "nao-listado"},
+		{name: "opf-42/vim_9.0_amd64.deb", content: vimContent},
+		{name: "opf-42/libc6_2.35_amd64.deb", content: libcContent},
+	})
+
+	baseRT := archRuntime("amd64")
+	baseRT.execFn = func(cmd []string) (string, error) {
+		if strings.Join(cmd, " ") == "uname -m" {
+			return "x86_64\n", nil
+		}
+		if cmd[0] == "sh" {
+			return inventory, nil
+		}
+		return "", nil
+	}
+	rt := &archiveFakeRuntime{fakeRuntime: baseRT, archiveBytes: archive}
+	res := &fakeResolver{
+		deps:     []string{"libc6", "vim"},
+		commands: [][]string{{"apt-get", "download", "libc6", "vim"}},
+	}
+
+	f := NewDockerFetcher(
+		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
+		WithResolverFactory(func(core.CommandExecutor, string, string) core.DependencyResolver { return res }),
+	)
+	f.factory = func(context.Context, runConfig) (containerRuntime, error) { return rt, nil }
+	if err := f.BindSession(42); err != nil {
+		t.Fatalf("BindSession: %v", err)
+	}
+	t.Cleanup(func() { _ = f.Cleanup(context.Background()) })
+
+	var observedSteps []int
+	f.SetStageObserver(func(step int) { observedSteps = append(observedSteps, step) })
+
+	if err := f.Prepare(context.Background(), "ubuntu", "22.04", "amd64"); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if !f.IsPrepared() {
+		t.Fatal("IsPrepared deveria ser true após Prepare")
+	}
+
+	artifacts, err := f.Download(context.Background(), "vim", false)
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if rt.archiveCalls != 1 {
+		t.Fatalf("archiveCalls = %d, esperava 1", rt.archiveCalls)
+	}
+	if len(baseRT.copied) != 0 {
+		t.Fatalf("CopyFromContainer individual não deveria ser usado: %v", baseRT.copied)
+	}
+	if len(artifacts) != 2 {
+		t.Fatalf("artefatos = %d, esperava 2", len(artifacts))
+	}
+	if len(observedSteps) != 1 || observedSteps[0] != 5 {
+		t.Fatalf("stage observer recebeu %v, esperava [5]", observedSteps)
+	}
+	if _, err := os.Stat(filepath.Join(f.HostDir(), "unexpected.deb")); !os.IsNotExist(err) {
+		t.Fatal("arquivo inesperado não deveria ser extraído")
+	}
+	if _, err := os.Stat(filepath.Join(f.HostDir(), "symlink.deb")); !os.IsNotExist(err) {
+		t.Fatal("symlink não deveria ser extraído")
 	}
 }

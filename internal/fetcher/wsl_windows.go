@@ -19,20 +19,23 @@ import (
 )
 
 type WSLFetcher struct {
-	options  wslOptions
-	session  int64
-	prepared bool
-	workDir  string
-	hostDir  string
-	runner   *wslRunner
-	resolver core.DependencyResolver
-	reporter core.PipelineReporter
+	options       wslOptions
+	session       int64
+	prepared      bool
+	workDir       string
+	hostDir       string
+	runner        *wslRunner
+	resolver      core.DependencyResolver
+	reporter      core.PipelineReporter
+	stageObserver core.StageObserver
 }
 
 var _ core.PackageFetcher = (*WSLFetcher)(nil)
 var _ core.MultiPackageFetcher = (*WSLFetcher)(nil)
+var _ core.PreparedFetcher = (*WSLFetcher)(nil)
 var _ core.SessionBinder = (*WSLFetcher)(nil)
 var _ core.ReporterSetter = (*WSLFetcher)(nil)
+var _ core.StageObserverSetter = (*WSLFetcher)(nil)
 
 func NewWSLFetcher(opts ...WSLFetcherOption) *WSLFetcher {
 	return &WSLFetcher{options: applyWSLFetcherOptions(opts)}
@@ -154,6 +157,15 @@ func (f *WSLFetcher) SetReporter(reporter core.PipelineReporter) {
 	f.reporter = reporter
 }
 
+func (f *WSLFetcher) SetStageObserver(observer core.StageObserver) {
+	f.stageObserver = observer
+}
+
+// IsPrepared reports whether the isolated WSL workspace is already active.
+func (f *WSLFetcher) IsPrepared() bool {
+	return f.prepared && f.runner != nil && f.resolver != nil
+}
+
 func (f *WSLFetcher) Download(ctx context.Context, pkg string, includeOptional bool) ([]core.PackageArtifact, error) {
 	return f.DownloadPackages(ctx, []string{pkg}, includeOptional)
 }
@@ -197,6 +209,9 @@ func (f *WSLFetcher) DownloadPackages(ctx context.Context, roots []string, inclu
 	commands := f.resolver.DownloadCommands(pkgs)
 	if len(commands) == 0 {
 		return nil, errors.New("resolver não retornou comandos de download")
+	}
+	if f.stageObserver != nil {
+		f.stageObserver(5)
 	}
 	for _, cmd := range commands {
 		if len(cmd) == 0 {

@@ -131,6 +131,35 @@ type CommandStreamRunner interface {
 	RunCommandStream(ctx context.Context, cmd string, stdout, stderr io.Writer) error
 }
 
+// CommandStreamInputRunner streams remote command output while feeding stdin
+// (used by sudo -S with live logs without exposing the password in argv).
+type CommandStreamInputRunner interface {
+	RunCommandStreamWithInput(ctx context.Context, cmd string, input []byte, stdout, stderr io.Writer) error
+}
+
+// PreparedFetcher reports whether a fetcher already has an active isolated
+// environment ready to be reused (e.g., from Package diff preview into run).
+type PreparedFetcher interface {
+	IsPrepared() bool
+}
+
+// ConnectedTransfer reports whether a transfer manager already holds an active
+// SSH/SFTP connection ready to be reused.
+type ConnectedTransfer interface {
+	IsConnected() bool
+}
+
+// StageObserver receives internal pipeline stage transitions reported by a
+// fetcher (for example, moving from step 4 dependency resolution to step 5
+// package download).
+type StageObserver func(step int)
+
+// StageObserverSetter is implemented by fetchers that emit internal stage
+// transitions during DownloadPackages.
+type StageObserverSetter interface {
+	SetStageObserver(observer StageObserver)
+}
+
 // RemoteCleaner removes the remote session directory on cancellation/failure.
 type RemoteCleaner interface {
 	RemoveRemoteDir(ctx context.Context, dir string) error

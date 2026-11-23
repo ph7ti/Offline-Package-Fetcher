@@ -3,12 +3,15 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"opf/internal/core"
 )
+
+const defaultWarmPreviewTTL = 15 * time.Minute
 
 // PackagePreview is the pre-pipeline package inventory/diff result. It is
 // created before downloading any package and is persisted in the session so
@@ -47,7 +50,22 @@ func (s *Service) PreviewPackageDiff(ctx context.Context) (*PackagePreview, erro
 	if err := s.repo.CreateSessao(ctx, session); err != nil {
 		return nil, fmt.Errorf("criar sessão de pré-diff: %w", err)
 	}
+	preparedHere := false
+	connectedHere := false
+	cleanupOnFail := func() {
+		if connectedHere && s.transfer != nil {
+			_ = s.transfer.Close()
+			connectedHere = false
+		}
+		if preparedHere && s.fetcher != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			_ = s.fetcher.Cleanup(cleanupCtx)
+			cancel()
+			preparedHere = false
+		}
+	}
 	fail := func(err error) (*PackagePreview, error) {
+		cleanupOnFail()
 		_ = s.repo.FinalizarSessao(context.Background(), session.ID, core.SessaoFalhou, time.Now().UTC())
 		return nil, err
 	}
@@ -73,16 +91,12 @@ func (s *Service) PreviewPackageDiff(ctx context.Context) (*PackagePreview, erro
 	if err := s.fetcher.Prepare(ctx, s.cfg.TargetOS, s.cfg.TargetVersion, s.cfg.TargetArch); err != nil {
 		return fail(fmt.Errorf("preparar ambiente para o diff: %w", err))
 	}
-	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		defer cancel()
-		_ = s.fetcher.Cleanup(cleanupCtx)
-	}()
+	preparedHere = true
 
 	if err := s.transfer.Connect(ctx, s.cfg.SSH); err != nil {
 		return fail(fmt.Errorf("conectar SSH para o diff: %w", err))
 	}
-	defer func() { _ = s.transfer.Close() }()
+	connectedHere = true
 
 	candidates, err := s.fetcher.(core.PackageVersionResolver).ResolveCandidates(ctx, s.cfg.Packages, s.cfg.IncludeOptional)
 	if err != nil {
@@ -117,12 +131,17 @@ func (s *Service) PreviewPackageDiff(ctx context.Context) (*PackagePreview, erro
 			return fail(fmt.Errorf("persistir preview: %w", err))
 		}
 	}
+	// Keep the isolated environment and SSH connection warm so RunPreviewed
+	// does not pay the container startup and SSH handshake cost twice.
+	// A safety TTL guarantees cleanup even if the caller forgets Abort/Close.
+	s.markWarmPreview()
 	return &PackagePreview{SessionID: session.ID, Data: data, Upgrades: upgrades}, nil
 }
 
 // AbortPreview records the user's refusal and finalizes the session as
 // aborted. The report keeps the collected inventory, diff and decision.
 func (s *Service) AbortPreview(ctx context.Context, preview *PackagePreview) error {
+	_ = s.cleanupWarmResources()
 	if preview == nil || preview.SessionID == 0 {
 		return fmt.Errorf("preview inválido")
 	}
@@ -140,23 +159,87 @@ func (s *Service) AbortPreview(ctx context.Context, preview *PackagePreview) err
 }
 
 // RunPreviewed marks the preview as approved and runs the normal pipeline from
-// step 2, reusing the session created by PreviewPackageDiff.
+// step 2, reusing the session (and, when still warm, the isolated environment
+// and SSH connection) created by PreviewPackageDiff.
 func (s *Service) RunPreviewed(ctx context.Context, preview *PackagePreview, reporter core.PipelineReporter) (*core.PipelineResult, error) {
 	if preview == nil || preview.SessionID == 0 {
+		_ = s.cleanupWarmResources()
 		return nil, fmt.Errorf("preview inválido")
 	}
 	preview.Data.Decision = "approved"
 	if err := s.savePreview(ctx, preview); err != nil {
+		_ = s.cleanupWarmResources()
 		return nil, err
 	}
 	stored, err := s.repo.ObterSessao(ctx, preview.SessionID)
 	if err != nil {
+		_ = s.cleanupWarmResources()
 		return nil, err
 	}
+	// Transfer ownership of warm resources to ExecutarPipeline (whose defer
+	// guarantees cleanup/close).
+	s.disarmWarmPreview()
 	cfg := s.pipelineConfig(reporter)
 	cfg.ResumeFrom = 2
 	cfg.UpgradeRoots = preview.Upgrades
 	return core.ExecutarPipeline(ctx, cfg, stored)
+}
+
+func (s *Service) markWarmPreview() {
+	ttl := s.cfg.StageTimeout
+	if ttl <= 0 {
+		ttl = defaultWarmPreviewTTL
+	}
+	s.warmMu.Lock()
+	defer s.warmMu.Unlock()
+	if s.warmTimer != nil {
+		s.warmTimer.Stop()
+	}
+	s.warmPreview = true
+	s.warmTimer = time.AfterFunc(ttl, func() {
+		_ = s.cleanupWarmResources()
+	})
+}
+
+func (s *Service) disarmWarmPreview() {
+	s.warmMu.Lock()
+	defer s.warmMu.Unlock()
+	if s.warmTimer != nil {
+		s.warmTimer.Stop()
+		s.warmTimer = nil
+	}
+	s.warmPreview = false
+}
+
+func (s *Service) cleanupWarmResources() error {
+	s.warmMu.Lock()
+	if s.warmTimer != nil {
+		s.warmTimer.Stop()
+		s.warmTimer = nil
+	}
+	if !s.warmPreview {
+		s.warmMu.Unlock()
+		return nil
+	}
+	s.warmPreview = false
+	fetcherRef := s.fetcher
+	transferRef := s.transfer
+	s.warmMu.Unlock()
+
+	var errs []error
+	if transferRef != nil {
+		if err := transferRef.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("fechar SSH do preview: %w", err))
+		}
+	}
+	if fetcherRef != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		if err := fetcherRef.Cleanup(cleanupCtx); err != nil {
+			errs = append(errs, fmt.Errorf("cleanup do ambiente do preview: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func packageKey(name string) string {

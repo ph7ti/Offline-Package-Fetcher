@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"opf/internal/core"
@@ -43,34 +42,12 @@ func (i *YumDnfInstaller) InstallCommand(pkgs []core.PackageArtifact) (string, e
 	if i.remoteDir == "" {
 		return "", errors.New("diretório remoto da instalação não configurado")
 	}
-	if len(pkgs) == 0 {
-		return "", errors.New("nenhum pacote para instalar")
+	names, err := validateAndQuoteArtifacts(pkgs, ".rpm")
+	if err != nil {
+		return "", err
 	}
 
-	names := make([]string, 0, len(pkgs))
-	seen := make(map[string]struct{}, len(pkgs))
-	for _, pkg := range pkgs {
-		name := filepath.Base(pkg.LocalPath)
-		if name == "" || name == "." || name == ".." {
-			return "", fmt.Errorf("nome de artefato inválido: %q", pkg.LocalPath)
-		}
-		if filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
-			return "", fmt.Errorf("artefato com caminho no nome: %q", name)
-		}
-		if !strings.HasSuffix(name, ".rpm") {
-			return "", fmt.Errorf("artefato não é .rpm: %q", name)
-		}
-		if strings.ContainsRune(name, 0) || strings.ContainsAny(name, "\r\n") {
-			return "", fmt.Errorf("nome de artefato inválido: %q", name)
-		}
-		if _, ok := seen[name]; ok {
-			return "", fmt.Errorf("artefato duplicado na instalação: %q", name)
-		}
-		seen[name] = struct{}{}
-		names = append(names, shellQuote(name))
-	}
-
-	installCommand := "$PM localinstall -y " + strings.Join(names, " ")
+	installCommand := "$PM localinstall -y --disablerepo='*' " + strings.Join(names, " ")
 	script := fmt.Sprintf(
 		"cd %s && { if command -v dnf >/dev/null 2>&1; then PM=dnf; "+
 			"elif command -v yum >/dev/null 2>&1; then PM=yum; "+

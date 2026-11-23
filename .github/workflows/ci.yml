@@ -107,6 +107,12 @@ jobs:
       - name: go test
         run: go test -count=1 ./...
 
+      - name: go test -race (Linux)
+        if: runner.os == 'Linux'
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 ./internal/... ./cmd/opf-cli/... ./cmd/opf-tui/... ./ui/tui/... ./test/security/...
+
   # --------------------------------------------------------------------------
   # 2. Release-grade cross-compilation of the CLI and the TUI.
   #    Pure Go (modernc.org/sqlite), so CGO_ENABLED=0 keeps the binaries

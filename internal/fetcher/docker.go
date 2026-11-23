@@ -1,6 +1,7 @@
 package fetcher
 
 import (
+	"archive/tar"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -78,8 +79,9 @@ for f in *.apk; do
 done
 [ "$found" -eq 1 ] || { echo "nenhum .apk encontrado" >&2; exit 1; }
 `
-	cleanupTimeout = 30 * time.Second
-	maxOutputLog   = 4096
+	cleanupTimeout       = 30 * time.Second
+	maxOutputLog         = 4096
+	maxArtifactCopyBytes = int64(2) << 30
 )
 
 var (
@@ -125,12 +127,18 @@ type containerRuntime interface {
 	Terminate(ctx context.Context) error
 }
 
+type bulkArchiveCopier interface {
+	CopyArchiveFromContainer(ctx context.Context, containerPath string) (io.ReadCloser, error)
+}
+
 type containerFactory func(ctx context.Context, cfg runConfig) (containerRuntime, error)
 
 var (
 	_ core.PackageFetcher      = (*DockerFetcher)(nil)
 	_ core.MultiPackageFetcher = (*DockerFetcher)(nil)
+	_ core.PreparedFetcher     = (*DockerFetcher)(nil)
 	_ core.ReporterSetter      = (*DockerFetcher)(nil)
+	_ core.StageObserverSetter = (*DockerFetcher)(nil)
 )
 
 // DockerFetcher implements core.PackageFetcher using an ephemeral Docker
@@ -154,6 +162,7 @@ type DockerFetcher struct {
 	containerID   string
 	artifactKind  artifactKind
 	reporter      core.PipelineReporter
+	stageObserver core.StageObserver
 	runtime       containerRuntime
 	resolver      core.DependencyResolver
 }
@@ -396,6 +405,15 @@ func (f *DockerFetcher) SetReporter(reporter core.PipelineReporter) {
 	f.reporter = reporter
 }
 
+func (f *DockerFetcher) SetStageObserver(observer core.StageObserver) {
+	f.stageObserver = observer
+}
+
+// IsPrepared reports whether the isolated Docker environment is already active.
+func (f *DockerFetcher) IsPrepared() bool {
+	return f.prepared && f.runtime != nil && f.resolver != nil
+}
+
 func (f *DockerFetcher) Download(ctx context.Context, pkg string, includeOptional bool) ([]core.PackageArtifact, error) {
 	return f.DownloadPackages(ctx, []string{pkg}, includeOptional)
 }
@@ -441,6 +459,9 @@ func (f *DockerFetcher) DownloadPackages(ctx context.Context, roots []string, in
 	commands := f.resolver.DownloadCommands(pkgs)
 	if len(commands) == 0 {
 		return nil, errors.New("resolver não retornou comandos de download")
+	}
+	if f.stageObserver != nil {
+		f.stageObserver(5)
 	}
 	for _, cmd := range commands {
 		if len(cmd) == 0 {
@@ -500,35 +521,42 @@ func (f *DockerFetcher) DownloadPackages(ctx context.Context, roots []string, in
 	for _, root := range roots {
 		rootSet[stripQualifier(root)] = struct{}{}
 	}
-	artifacts := make([]core.PackageArtifact, 0, len(files))
-
-	for i, info := range files {
-		hostPath := filepath.Join(f.hostDir, info.File)
-		if err := f.copyFileFromContainer(ctx, info.File, hostPath); err != nil {
+	var artifacts []core.PackageArtifact
+	if copier, ok := f.runtime.(bulkArchiveCopier); ok {
+		artifacts, err = f.copyFilesFromArchive(ctx, copier, files, rootSet)
+		if err != nil {
 			return nil, err
 		}
-		hostHash, err := hashFile(hostPath)
-		if err != nil {
-			return nil, fmt.Errorf("calcular SHA-256 de %q no host: %w", info.File, err)
-		}
-		if !strings.EqualFold(hostHash, info.SHA256) {
-			os.Remove(hostPath)
-			return nil, fmt.Errorf("cópia corrompida do artefato %q", info.File)
-		}
+	} else {
+		artifacts = make([]core.PackageArtifact, 0, len(files))
+		for i, info := range files {
+			hostPath := filepath.Join(f.hostDir, info.File)
+			if err := f.copyFileFromContainer(ctx, info.File, hostPath); err != nil {
+				return nil, err
+			}
+			hostHash, err := hashFile(hostPath)
+			if err != nil {
+				return nil, fmt.Errorf("calcular SHA-256 de %q no host: %w", info.File, err)
+			}
+			if !strings.EqualFold(hostHash, info.SHA256) {
+				os.Remove(hostPath)
+				return nil, fmt.Errorf("cópia corrompida do artefato %q", info.File)
+			}
 
-		_, isRoot := rootSet[info.Name]
-		artifacts = append(artifacts, core.PackageArtifact{
-			Name:         info.Name,
-			Version:      info.Version,
-			Arch:         info.Arch,
-			LocalPath:    hostPath,
-			IsDependency: !isRoot,
-			SHA256:       strings.ToLower(hostHash),
-			SHA256P1:     strings.ToLower(info.SHA256),
-			SHA256P2:     strings.ToLower(hostHash),
-		})
-		if f.reporter != nil {
-			f.reporter.Progress("copy", int64(i+1), int64(len(files)))
+			_, isRoot := rootSet[info.Name]
+			artifacts = append(artifacts, core.PackageArtifact{
+				Name:         info.Name,
+				Version:      info.Version,
+				Arch:         info.Arch,
+				LocalPath:    hostPath,
+				IsDependency: !isRoot,
+				SHA256:       strings.ToLower(hostHash),
+				SHA256P1:     strings.ToLower(info.SHA256),
+				SHA256P2:     strings.ToLower(hostHash),
+			})
+			if f.reporter != nil {
+				f.reporter.Progress("copy", int64(i+1), int64(len(files)))
+			}
 		}
 	}
 
@@ -588,37 +616,133 @@ func (f *DockerFetcher) EnvironmentID() string {
 	return f.containerID
 }
 
+func (f *DockerFetcher) copyFilesFromArchive(ctx context.Context, copier bulkArchiveCopier, files []artifactInfo, rootSet map[string]struct{}) ([]core.PackageArtifact, error) {
+	stream, err := copier.CopyArchiveFromContainer(ctx, f.workDir)
+	if err != nil {
+		return nil, fmt.Errorf("copiar artefatos do contêiner em lote: %w", err)
+	}
+	defer stream.Close()
+
+	expected := make(map[string]artifactInfo, len(files))
+	for _, info := range files {
+		expected[info.File] = info
+	}
+	workDirBase := path.Base(path.Clean(f.workDir))
+
+	tr := tar.NewReader(stream)
+	extracted := make(map[string]struct{}, len(files))
+	artifacts := make([]core.PackageArtifact, 0, len(files))
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("ler arquivo tar do contêiner: %w", err)
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		clean := path.Clean(strings.ReplaceAll(header.Name, `\`, "/"))
+		if strings.HasPrefix(clean, "/") || clean == ".." || strings.HasPrefix(clean, "../") {
+			continue
+		}
+		dir := path.Dir(clean)
+		if dir != "." && dir != workDirBase {
+			continue
+		}
+		base := path.Base(clean)
+		info, ok := expected[base]
+		if !ok {
+			continue
+		}
+		if _, dup := extracted[info.File]; dup {
+			return nil, fmt.Errorf("artefato duplicado no tar do contêiner: %q", info.File)
+		}
+
+		hostPath := filepath.Join(f.hostDir, info.File)
+		if err := writeLimitedFile(f.hostDir, hostPath, tr, maxArtifactCopyBytes); err != nil {
+			return nil, fmt.Errorf("extrair %q do contêiner: %w", info.File, err)
+		}
+		hostHash, err := hashFile(hostPath)
+		if err != nil {
+			return nil, fmt.Errorf("calcular SHA-256 de %q no host: %w", info.File, err)
+		}
+		if !strings.EqualFold(hostHash, info.SHA256) {
+			os.Remove(hostPath)
+			return nil, fmt.Errorf("cópia corrompida do artefato %q", info.File)
+		}
+
+		extracted[info.File] = struct{}{}
+		_, isRoot := rootSet[info.Name]
+		artifacts = append(artifacts, core.PackageArtifact{
+			Name:         info.Name,
+			Version:      info.Version,
+			Arch:         info.Arch,
+			LocalPath:    hostPath,
+			IsDependency: !isRoot,
+			SHA256:       strings.ToLower(hostHash),
+			SHA256P1:     strings.ToLower(info.SHA256),
+			SHA256P2:     strings.ToLower(hostHash),
+		})
+		if f.reporter != nil {
+			f.reporter.Progress("copy", int64(len(extracted)), int64(len(files)))
+		}
+	}
+
+	if len(extracted) != len(files) {
+		for _, info := range files {
+			if _, ok := extracted[info.File]; !ok {
+				return nil, fmt.Errorf("artefato %q ausente do tar copiado do contêiner", info.File)
+			}
+		}
+	}
+	return artifacts, nil
+}
+
+func writeLimitedFile(tempBase, hostPath string, src io.Reader, limit int64) error {
+	tmp, err := os.CreateTemp(tempBase, ".copy-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	written, err := io.Copy(tmp, io.LimitReader(src, limit+1))
+	if err != nil {
+		tmp.Close()
+		return err
+	}
+	if written > limit {
+		tmp.Close()
+		return fmt.Errorf("artefato excede o limite de %d bytes", limit)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, hostPath)
+}
+
 func (f *DockerFetcher) copyFileFromContainer(ctx context.Context, name, hostPath string) error {
 	reader, err := f.runtime.CopyFromContainer(ctx, path.Join(f.workDir, name))
 	if err != nil {
 		return fmt.Errorf("copiar %q do contêiner: %w", name, err)
 	}
 	defer reader.Close()
-
-	tmp, err := os.CreateTemp(f.hostDir, ".copy-*")
-	if err != nil {
-		return fmt.Errorf("criar arquivo temporário para %q: %w", name, err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	if _, err := io.Copy(tmp, reader); err != nil {
-		tmp.Close()
+	if err := writeLimitedFile(f.hostDir, hostPath, reader, maxArtifactCopyBytes); err != nil {
 		return fmt.Errorf("copiar conteúdo de %q: %w", name, err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return fmt.Errorf("sincronizar cópia de %q: %w", name, err)
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		tmp.Close()
-		return fmt.Errorf("ajustar permissões de %q: %w", name, err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("fechar cópia de %q: %w", name, err)
-	}
-	if err := os.Rename(tmpName, hostPath); err != nil {
-		return fmt.Errorf("publicar cópia de %q: %w", name, err)
 	}
 	return nil
 }
@@ -843,6 +967,16 @@ func (r *dockerRuntime) Exec(ctx context.Context, cmd []string) (string, error) 
 
 func (r *dockerRuntime) CopyFromContainer(ctx context.Context, path string) (io.ReadCloser, error) {
 	return r.ctr.CopyFromContainer(ctx, path)
+}
+
+func (r *dockerRuntime) CopyArchiveFromContainer(ctx context.Context, containerPath string) (io.ReadCloser, error) {
+	res, err := r.ctr.Client().CopyFromContainer(ctx, r.ctr.ID(), dockerclient.CopyFromContainerOptions{
+		SourcePath: containerPath,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res.Content, nil
 }
 
 func (r *dockerRuntime) Terminate(ctx context.Context) error {

@@ -3,6 +3,7 @@ package installer
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -10,11 +11,13 @@ import (
 )
 
 type fakeTransfer struct {
-	command  string
-	output   string
-	runError error
-	input    []byte
-	useInput bool
+	command    string
+	output     string
+	runError   error
+	input      []byte
+	useInput   bool
+	useStream  bool
+	streamData string
 }
 
 func (f *fakeTransfer) Connect(context.Context, core.SSHConfig) error { return nil }
@@ -35,6 +38,40 @@ func (f *fakeTransfer) RunCommandWithInput(_ context.Context, cmd string, input 
 }
 func (f *fakeTransfer) Close() error { return nil }
 
+type streamingFakeTransfer struct {
+	fakeTransfer
+}
+
+func (f *streamingFakeTransfer) RunCommandStream(_ context.Context, cmd string, stdout, _ io.Writer) error {
+	f.command = cmd
+	f.useStream = true
+	if f.streamData != "" && stdout != nil {
+		_, _ = io.WriteString(stdout, f.streamData)
+	}
+	return f.runError
+}
+
+func (f *streamingFakeTransfer) RunCommandStreamWithInput(_ context.Context, cmd string, input []byte, stdout, _ io.Writer) error {
+	f.command = cmd
+	f.useStream = true
+	f.useInput = true
+	f.input = append([]byte(nil), input...)
+	if f.streamData != "" && stdout != nil {
+		_, _ = io.WriteString(stdout, f.streamData)
+	}
+	return f.runError
+}
+
+type fakeReporter struct {
+	logs []string
+}
+
+func (r *fakeReporter) StepStarted(int, string)       {}
+func (r *fakeReporter) StepFinished(int, string)      {}
+func (r *fakeReporter) StepFailed(int, string, error) {}
+func (r *fakeReporter) Progress(string, int64, int64) {}
+func (r *fakeReporter) Log(_, message string)         { r.logs = append(r.logs, message) }
+
 func TestAptInstallerInstallCommand(t *testing.T) {
 	installer := NewAptInstaller()
 	if err := installer.SetRemoteDir("/tmp/opf-sessao-1"); err != nil {
@@ -52,7 +89,7 @@ func TestAptInstallerInstallCommand(t *testing.T) {
 		"cd '/tmp/opf-sessao-1'",
 		"DEBIAN_FRONTEND=noninteractive dpkg -i 'vim_9.0_amd64.deb' 'libc6_2.35_amd64.deb'",
 		`if [ "$status" -ne 0 ]`,
-		"DEBIAN_FRONTEND=noninteractive apt-get install -f -y",
+		"DEBIAN_FRONTEND=noninteractive apt-get install -f -y --no-download",
 	} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("comando sem %q: %s", want, cmd)
@@ -76,7 +113,7 @@ func TestAptInstallerInstallCommandWithSudo(t *testing.T) {
 		"sudo -S -p '' sh -c",
 		"DEBIAN_FRONTEND=noninteractive dpkg -i",
 		"vim.deb",
-		"DEBIAN_FRONTEND=noninteractive apt-get install -f -y",
+		"DEBIAN_FRONTEND=noninteractive apt-get install -f -y --no-download",
 	} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("comando sem %q: %s", want, cmd)
@@ -210,5 +247,30 @@ func TestAptInstallerExecute(t *testing.T) {
 	}
 	if err := installer.Execute(context.Background(), tm, "  "); err == nil {
 		t.Fatal("esperava erro para comando vazio")
+	}
+}
+
+func TestAptInstallerStreamsOutputWithSudo(t *testing.T) {
+	reporter := &fakeReporter{}
+	installer := NewAptInstaller(WithSudoPassword("senha-secreta"), WithReporter(reporter))
+	if err := installer.SetRemoteDir("/tmp/opf-sessao-1"); err != nil {
+		t.Fatalf("SetRemoteDir: %v", err)
+	}
+	cmd, err := installer.InstallCommand([]core.PackageArtifact{{LocalPath: "/tmp/vim.deb"}})
+	if err != nil {
+		t.Fatalf("InstallCommand: %v", err)
+	}
+	tm := &streamingFakeTransfer{fakeTransfer: fakeTransfer{streamData: "Setting up vim...\nDone"}}
+	if err := installer.Execute(context.Background(), tm, cmd); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !tm.useStream || !tm.useInput {
+		t.Fatalf("esperava streaming com stdin: stream=%v input=%v", tm.useStream, tm.useInput)
+	}
+	if string(tm.input) != "senha-secreta\n" {
+		t.Fatalf("stdin = %q", tm.input)
+	}
+	if len(reporter.logs) != 2 || reporter.logs[0] != "Setting up vim..." || reporter.logs[1] != "Done" {
+		t.Fatalf("logs recebidos = %v", reporter.logs)
 	}
 }

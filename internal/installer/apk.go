@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"opf/internal/core"
@@ -43,35 +42,13 @@ func (a *ApkInstaller) InstallCommand(pkgs []core.PackageArtifact) (string, erro
 	if a.remoteDir == "" {
 		return "", errors.New("diretório remoto da instalação não configurado")
 	}
-	if len(pkgs) == 0 {
-		return "", errors.New("nenhum pacote para instalar")
-	}
-
-	names := make([]string, 0, len(pkgs))
-	seen := make(map[string]struct{}, len(pkgs))
-	for _, pkg := range pkgs {
-		name := filepath.Base(pkg.LocalPath)
-		if name == "" || name == "." || name == ".." {
-			return "", fmt.Errorf("nome de artefato inválido: %q", pkg.LocalPath)
-		}
-		if filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
-			return "", fmt.Errorf("artefato com caminho no nome: %q", name)
-		}
-		if !strings.HasSuffix(name, ".apk") {
-			return "", fmt.Errorf("artefato não é .apk: %q", name)
-		}
-		if strings.ContainsRune(name, 0) || strings.ContainsAny(name, "\r\n") {
-			return "", fmt.Errorf("nome de artefato inválido: %q", name)
-		}
-		if _, ok := seen[name]; ok {
-			return "", fmt.Errorf("artefato duplicado na instalação: %q", name)
-		}
-		seen[name] = struct{}{}
-		names = append(names, shellQuote(name))
+	names, err := validateAndQuoteArtifacts(pkgs, ".apk")
+	if err != nil {
+		return "", err
 	}
 
 	script := fmt.Sprintf(
-		"cd %s && apk add --allow-untrusted %s",
+		"cd %s && apk add --no-network --allow-untrusted %s",
 		shellQuote(a.remoteDir),
 		strings.Join(names, " "),
 	)
