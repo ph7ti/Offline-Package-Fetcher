@@ -13,7 +13,7 @@
 
 **Download Linux packages and their complete dependency closure for isolated environments — and, when it makes sense, ship them over SSH/SFTP and install them on the target.**
 
-Version **0.3.0** (development) · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
+Version **0.3.0** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
 
 ---
 
@@ -158,7 +158,7 @@ Releases publish **installers only** — no loose CLI/TUI/GUI binaries.
 
 Each release publishes **9 assets**: the eight installers above plus `SHA256SUMS`.
 
-1. Open [the v0.2.8 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.2.8).
+1. Open [the v0.3.0 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.3.0).
 2. Download the installer for your platform and `SHA256SUMS`.
 3. Verify the download:
 
@@ -281,7 +281,7 @@ The CLI/TUI default output directory is `./opf-output`, the default database is 
 
 ## GUI and TUI
 
-- **GUI** (`opf-gui`): dashboard with counters and recent sessions, session configuration, SSH connection with target detection and jump hosts, packages and pre-check with the **Coletar versões do pacote** selector, **Package diff** confirmation, execution with the 13 stages and a live log, installation confirmation, result, rendered report, history and global settings. Light/dark theme toggle. The OPF icon is embedded in every Windows executable and appears in the taskbar.
+- **GUI** (`opf-gui`): dashboard with counters and recent sessions, session configuration, SSH connection with target detection and jump hosts, packages and pre-check with the **Coletar versões do pacote** selector, **Package diff** confirmation, execution with the 13 stages and a live log, installation confirmation, result, rendered report, history and global settings. An **About** action next to Settings shows the logo, version, build/commit, release date, developer and links. Light/dark theme toggle. The OPF icon is embedded in every Windows executable and appears in the taskbar.
 - **TUI** (`opf-tui`): the same flow in a terminal, with shortcuts such as `ctrl+d` (detect target), `ctrl+t` (test SSH), `ctrl+j` (jump hosts), `ctrl+r` (repositories), `J`/`M` (export report) and `S` (send to Syslog).
 
 The complete walkthrough — screen by screen and key by key — is in the [user manual](docs/MANUAL.md#6-gui-walkthrough).
@@ -318,7 +318,7 @@ The screenshots below show the current interface in English. The GUI follows the
 
 ### TUI
 
-**Main menu.** `OPF TUI 2.8`, SQLite status and the security footer (`No NOPASSWD`, strict host key, secrets never logged).
+**Main menu.** `OPF TUI 0.3.0`, SQLite status and the security footer (`No NOPASSWD`, strict host key, secrets never logged).
 
 <img src="prints/tui-main-menu.png" width="750" alt="OPF TUI main menu">
 
@@ -430,6 +430,6 @@ OPF was developed with **heavy AI assistance** — code generation, tests, revie
 
 ## Version
 
-**Version 0.3.0** — in development; the current published release is **0.2.8**. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
+**Version 0.3.0** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
 
 **English** | [Português (BR)](docs/README.pt-BR.md)

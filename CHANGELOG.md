@@ -4,7 +4,7 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-11-22
+## [0.3.0] - 2026-11-23
 
 Package diff and installed-version reports.
 
@@ -20,6 +20,9 @@ Package diff and installed-version reports.
 - Candidate versions are resolved from repository metadata (`apt-cache policy`,
   `dnf repoquery`/`repoquery`, `apk fetch --simulate`) without downloading the
   packages; installed versions come from the SSH destination.
+- **About dialog** in the GUI header, next to Settings, with the OPF logo,
+  version, build/commit, release date, developer, GitHub, email, LinkedIn and
+  GPL-3.0 license.
 - **CLI** flag `--version-report all|default|none`; when upgrades exist and
   `--install` is requested, the CLI prints the jump and asks for confirmation.
 - Reports now include the installed-package inventory, the **Package diff**

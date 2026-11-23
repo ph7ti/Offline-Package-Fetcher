@@ -355,6 +355,10 @@ Lista de sessões com cartões (`Relatório`, `Retomar`, `Arquivar`). Na GUI, **
 
 A barra superior traz atalhos **Início**, **Histórico**, **Configurações** (desabilitados durante a execução) e o botão **Tema** (claro/escuro, preferência salva); a barra inferior mostra o estado (`pronto para operar`, `pipeline em execução`, `sessão #N`, `SQLite indisponível`), o nome do banco e o tema atual.
 
+### 6.10 Sobre o OPF
+
+A ação **Sobre** é o ícone de informação ao lado de **Configurações** na barra superior. Abre um diálogo compacto com o logotipo e o nome do OPF, versão, build/commit, data de lançamento, desenvolvedor **Raphael Pereira**, links clicáveis para GitHub, e-mail e LinkedIn, além da licença **GPL-3.0**. O diálogo é somente leitura e pode ser fechado em **Fechar**.
+
 ## 7. TUI passo a passo
 
 A TUI (`opf-tui`) é Bubble Tea puro (`CGO_ENABLED=0`), com as mesmas operações da GUI.

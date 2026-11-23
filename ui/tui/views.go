@@ -9,6 +9,7 @@ import (
 
 	"opf/internal/core"
 	"opf/internal/i18n"
+	"opf/internal/version"
 )
 
 var (
@@ -55,7 +56,7 @@ func (m *Model) View() string {
 	case screenSettings:
 		body = m.viewSettings()
 	}
-	header := titleStyle.Render("OPF TUI 2.8") + "  " + helpStyle.Render("terminal • CGO_ENABLED=0")
+	header := titleStyle.Render("OPF TUI "+version.Current().Version) + "  " + helpStyle.Render("terminal • CGO_ENABLED=0")
 	help := helpStyle.Render(m.helpText())
 	return header + "\n" + strings.Repeat("─", 72) + "\n\n" + body + "\n\n" + help
 }

@@ -247,7 +247,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -buildid=" -o dist/opf-gui-linux-amd64 ./cmd/opf-gui
+          go build -trimpath -ldflags "-s -w -buildid= -X opf/internal/version.Commit=${{ github.sha }}" -o dist/opf-gui-linux-amd64 ./cmd/opf-gui
           file dist/opf-gui-linux-amd64
           go version -m dist/opf-gui-linux-amd64 | awk 'NR==1'
 
@@ -255,7 +255,7 @@ jobs:
         run: |
           set -euo pipefail
           GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
-            go build -trimpath -ldflags "-s -w -buildid= -H windowsgui" \
+            go build -trimpath -ldflags "-s -w -buildid= -H windowsgui -X opf/internal/version.Commit=${{ github.sha }}" \
             -o dist/opf-gui-windows-amd64.exe ./cmd/opf-gui
           file dist/opf-gui-windows-amd64.exe
           go version -m dist/opf-gui-windows-amd64.exe | awk 'NR==1'
@@ -315,7 +315,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -buildid=" -o dist/opf-gui-linux-arm64 ./cmd/opf-gui
+          go build -trimpath -ldflags "-s -w -buildid= -X opf/internal/version.Commit=${{ github.sha }}" -o dist/opf-gui-linux-arm64 ./cmd/opf-gui
           file dist/opf-gui-linux-arm64
           go version -m dist/opf-gui-linux-arm64 | awk 'NR==1'
           tar -czf dist/opf-gui-linux-arm64.tar.gz -C dist opf-gui-linux-arm64
@@ -357,6 +357,7 @@ jobs:
           rm -f cmd/opf-gui/rsrc_windows_arm64.syso
           "$(go env GOPATH)/bin/fyne-cross" windows -arch=arm64 \
             -name opf-gui -app-id org.opf.gui -icon images/icon.png \
+            -ldflags "-X opf/internal/version.Commit=${{ github.sha }}" \
             -env GOTOOLCHAIN=auto ./cmd/opf-gui
           unzip -o fyne-cross/dist/windows-arm64/opf-gui.zip -d fyne-cross/dist/windows-arm64
           mkdir -p dist
@@ -411,7 +412,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -buildid=" -o "dist/opf-gui-darwin-${GOARCH}" ./cmd/opf-gui
+          go build -trimpath -ldflags "-s -w -buildid= -X opf/internal/version.Commit=${{ github.sha }}" -o "dist/opf-gui-darwin-${GOARCH}" ./cmd/opf-gui
           file "dist/opf-gui-darwin-${GOARCH}"
           go version -m "dist/opf-gui-darwin-${GOARCH}" | awk 'NR==1'
 

@@ -299,6 +299,10 @@ Every non-archived session as a card with status badge and actions **Relatório*
 
 **Salvar configurações** validates the timeout (`> 0`), the port (`1..65535`), the host when Syslog is enabled and the selected language, writes `config.json` with mode `0600`, reopens the database and shows a confirmation dialog. A language change applies immediately and re-renders the current screen and help texts. Paths and file contents are described in [section 4.4](#44-global-settings-gui-and-tui).
 
+### 6.10 Sobre o OPF
+
+The **About** action is the information icon next to **Settings** in the top bar. It opens a compact dialog with the OPF logo and name, version, build/commit, release date, developer **Raphael Pereira**, clickable GitHub, email and LinkedIn links and the **GPL-3.0** license. The dialog is read-only and can be closed with **Fechar**.
+
 ## 7. TUI walkthrough
 
 The TUI (`opf-tui`) is pure Bubble Tea (`CGO_ENABLED=0`) and offers the same operations as the GUI, using the alternate screen and a context-sensitive help line.

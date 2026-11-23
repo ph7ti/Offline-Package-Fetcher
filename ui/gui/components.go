@@ -132,12 +132,13 @@ func (u *UI) appBar() fyne.CanvasObject {
 			u.showSettings()
 		}
 	})
+	aboutAction := widget.NewToolbarAction(theme.NewColoredResource(theme.InfoIcon(), colorOnHeader), u.showAbout)
 	if u.running {
 		homeAction.Disable()
 		historyAction.Disable()
 		settingsAction.Disable()
 	}
-	nav := widget.NewToolbar(homeAction, historyAction, settingsAction)
+	nav := widget.NewToolbar(homeAction, historyAction, settingsAction, aboutAction)
 	themeButton := widget.NewButtonWithIcon(i18n.T("Tema"), theme.ColorPaletteIcon(), u.toggleTheme)
 	if u.running {
 		themeButton.Disable()

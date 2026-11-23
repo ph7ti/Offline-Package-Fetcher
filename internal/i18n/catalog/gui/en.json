@@ -324,5 +324,13 @@
   "dependência": "dependency",
   "principal": "primary",
   "Passo 03 • versões": "Step 03 • versions",
-  "Revise as atualizações detectadas entre as versões instaladas e as candidatas antes de continuar.": "Review the detected upgrades between installed and candidate versions before continuing."
+  "Revise as atualizações detectadas entre as versões instaladas e as candidatas antes de continuar.": "Review the detected upgrades between installed and candidate versions before continuing.",
+  "Links": "Links",
+  "Software livre sob os termos da licença GPL-3.0.": "Free software under the terms of the GPL-3.0 license.",
+  "Sobre o OPF": "About OPF",
+  "Data de lançamento": "Release date",
+  "Build / commit": "Build / commit",
+  "Desenvolvedor": "Developer",
+  "Licença": "License",
+  "Fechar": "Close"
 }
