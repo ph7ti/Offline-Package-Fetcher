@@ -16,12 +16,12 @@ func TestAboutDetails(t *testing.T) {
 
 	details := aboutDetails()
 	want := map[string]string{
-		"Nome":              "Offline Package Fetcher (OPF)",
-		"Versão":            version.Current().Version,
-		"Build / commit":    version.Current().Commit,
+		"Nome":               "Offline Package Fetcher (OPF)",
+		"Versão":             version.Current().Version,
+		"Build / commit":     version.Current().Commit,
 		"Data de lançamento": version.Current().ReleaseDate,
-		"Desenvolvedor":     "Raphael Pereira",
-		"Licença":           "GPL-3.0",
+		"Desenvolvedor":      "Raphael Pereira",
+		"Licença":            "GPL-3.0",
 	}
 	if len(details) != len(want) {
 		t.Fatalf("aboutDetails = %d campos, esperava %d", len(details), len(want))
