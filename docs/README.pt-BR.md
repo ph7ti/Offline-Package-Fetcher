@@ -6,7 +6,7 @@
 [![Licença: GPL-3.0](https://img.shields.io/badge/licen%C3%A7a-GPL--3.0-blue)](../LICENSE)
 
 <p align="center">
-  <img src="../images/icon.png" alt="Offline Package Fetcher" width="128">
+  <img src="../images/icon.png" alt="Offline Package Fetcher" width="512">
 </p>
 
 # Offline Package Fetcher (OPF)
