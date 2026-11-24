@@ -31,18 +31,21 @@ type Config struct {
 	TargetArch    string
 	Packages      []string
 
-	IncludeOptional bool
-	FetchMethod     string // docker, wsl ou auto
-	Image           string
-	WSLDistro       string
-	SSH             core.SSHConfig
-	RemoteDir       string
-	Repositories    []core.PackageRepository
-	ForceReinstall  bool
-	VersionReport   core.VersionReportMode
-	StageTimeout    time.Duration
-	Logger          *slog.Logger
-	Reporter        core.PipelineReporter
+	IncludeOptional   bool
+	FetchMethod       string // docker, podman, wsl ou auto
+	ContainerHost     string
+	Image             string
+	WSLDistro         string
+	Proxy             core.ProxyConfig
+	OfflineBundlePath string
+	SSH               core.SSHConfig
+	RemoteDir         string
+	Repositories      []core.PackageRepository
+	ForceReinstall    bool
+	VersionReport     core.VersionReportMode
+	StageTimeout      time.Duration
+	Logger            *slog.Logger
+	Reporter          core.PipelineReporter
 
 	Install        bool
 	UseSudo        bool
@@ -100,6 +103,9 @@ func New(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("repositórios adicionais: %w", err)
 	}
+	if err := cfg.Proxy.Validate(false); err != nil {
+		return nil, fmt.Errorf("configuração de proxy: %w", err)
+	}
 	cfg.FetchMethod = resolveFetchMethod(cfg.FetchMethod, family)
 	if cfg.VersionReport == "" {
 		if cfg.SSH.Host == "" {
@@ -144,10 +150,17 @@ func New(cfg Config) (*Service, error) {
 	}
 
 	switch cfg.FetchMethod {
-	case "docker":
+	case "docker", "podman":
 		options := []fetcher.Option{
 			fetcher.WithLogger(cfg.Logger),
 			fetcher.WithResolverFactory(resolverFactory),
+			fetcher.WithRuntimeKind(cfg.FetchMethod),
+		}
+		if cfg.ContainerHost != "" {
+			options = append(options, fetcher.WithContainerHost(cfg.ContainerHost))
+		}
+		if !cfg.Proxy.Empty() {
+			options = append(options, fetcher.WithProxy(cfg.Proxy))
 		}
 		if cfg.Image != "" {
 			options = append(options, fetcher.WithImage(cfg.Image))
@@ -393,6 +406,15 @@ func (s *Service) configJSON() string {
 	if len(s.cfg.Repositories) > 0 {
 		payload["repositories"] = s.cfg.Repositories
 	}
+	if s.cfg.ContainerHost != "" {
+		payload["container_host"] = s.cfg.ContainerHost
+	}
+	if !s.cfg.Proxy.Empty() {
+		payload["proxy"] = s.cfg.Proxy.Sanitized()
+	}
+	if s.cfg.OfflineBundlePath != "" {
+		payload["offline_bundle_path"] = s.cfg.OfflineBundlePath
+	}
 	data, _ := json.Marshal(payload)
 	return string(data)
 }
@@ -402,23 +424,24 @@ func (s *Service) pipelineConfig(reporter core.PipelineReporter) core.PipelineCo
 		reporter = s.cfg.Reporter
 	}
 	return core.PipelineConfig{
-		Repo:           s.repo,
-		Fetcher:        s.fetcher,
-		Packages:       s.cfg.Packages,
-		OutputBaseDir:  s.cfg.OutputBaseDir,
-		StageTimeout:   s.cfg.StageTimeout,
-		Logger:         s.cfg.Logger,
-		Reporter:       reporter,
-		EventSink:      s.eventSink,
-		ForceReinstall: s.cfg.ForceReinstall,
-		Inspector:      s.inspect,
-		Transfer:       s.transfer,
-		SSH:            s.cfg.SSH,
-		RemoteDir:      s.cfg.RemoteDir,
-		Image:          s.cfg.Image,
-		WSLDistro:      s.cfg.WSLDistro,
-		Installer:      s.install,
-		ConfirmInstall: s.cfg.ConfirmInstall,
+		Repo:              s.repo,
+		Fetcher:           s.fetcher,
+		Packages:          s.cfg.Packages,
+		OutputBaseDir:     s.cfg.OutputBaseDir,
+		StageTimeout:      s.cfg.StageTimeout,
+		Logger:            s.cfg.Logger,
+		Reporter:          reporter,
+		EventSink:         s.eventSink,
+		ForceReinstall:    s.cfg.ForceReinstall,
+		Inspector:         s.inspect,
+		Transfer:          s.transfer,
+		SSH:               s.cfg.SSH,
+		RemoteDir:         s.cfg.RemoteDir,
+		Image:             s.cfg.Image,
+		WSLDistro:         s.cfg.WSLDistro,
+		Installer:         s.install,
+		ConfirmInstall:    s.cfg.ConfirmInstall,
+		OfflineBundlePath: s.cfg.OfflineBundlePath,
 	}
 }
 

@@ -250,6 +250,9 @@ func (m *Model) viewResult() string {
 			i18n.T("Saída:"), m.result.OutputDir,
 			i18n.T("Manifesto:"), m.result.CaminhoManifesto,
 			i18n.T("Destino remoto:"), m.result.RemoteDir)
+		if m.result.OfflineBundlePath != "" {
+			fmt.Fprintf(&b, "%s %s\n", i18n.T("Bundle offline:"), m.result.OfflineBundlePath)
+		}
 		if len(m.result.AlreadyInstalled) > 0 {
 			var names []string
 			for _, p := range m.result.AlreadyInstalled {

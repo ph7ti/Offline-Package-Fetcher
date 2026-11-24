@@ -327,3 +327,55 @@ func TestSyslogConfigInjection(t *testing.T) {
 		t.Error("invalid syslog protocol accepted")
 	}
 }
+
+// TestPinnedVersionValidation asserts resolvers accept valid pinned versions
+// while rejecting injection payloads inside the version suffix before executing
+// any command.
+func TestPinnedVersionValidation(t *testing.T) {
+	hostilePins := []string{
+		"nginx=1.0;id",
+		"nginx=$(id)",
+		"nginx=`id`",
+		"nginx=1.0|id",
+		"nginx=1.0 && id",
+		"nginx=1.0\nid",
+		"nginx=",
+		"=1.0",
+	}
+	for family, factory := range resolverFactories() {
+		family, factory := family, factory
+		t.Run(family+"/reject", func(t *testing.T) {
+			for _, spec := range hostilePins {
+				exec := &countingExecutor{outputs: []string{"yum\n"}}
+				res := factory(exec)
+				if _, err := res.ListDependencies(context.Background(), spec, false); err == nil {
+					t.Errorf("%s resolver accepted hostile pinned spec %q", family, spec)
+				}
+				if len(exec.calls) != 0 {
+					t.Fatalf("%s executor called %d times for hostile spec %q", family, len(exec.calls), spec)
+				}
+			}
+		})
+	}
+	t.Run("apt/valid-pin", func(t *testing.T) {
+		exec := &countingExecutor{outputs: []string{"", "", "nginx\nlibc6\n"}}
+		res := resolver.NewAptResolver(exec, "amd64", "/tmp/opf-sec-1")
+		if _, err := res.ListDependencies(context.Background(), "nginx=1.18.0-6ubuntu14.4", false); err != nil {
+			t.Fatalf("valid APT pin rejected: %v", err)
+		}
+	})
+	t.Run("rpm/valid-pin", func(t *testing.T) {
+		exec := &countingExecutor{outputs: []string{"dnf\n", "nginx\n"}}
+		res := resolver.NewYumDnfResolver(exec, "x86_64", "/tmp/opf-sec-1")
+		if _, err := res.ListDependencies(context.Background(), "nginx=1.20.1-14.el9", false); err != nil {
+			t.Fatalf("valid RPM pin rejected: %v", err)
+		}
+	})
+	t.Run("apk/valid-pin", func(t *testing.T) {
+		exec := &countingExecutor{outputs: []string{"", "", "Downloading curl-8.9.1-r1.apk\n"}}
+		res := resolver.NewApkResolver(exec, "x86_64", "/tmp/opf-sec-1")
+		if _, err := res.ListDependencies(context.Background(), "curl=8.9.1-r1", false); err != nil {
+			t.Fatalf("valid APK pin rejected: %v", err)
+		}
+	})
+}

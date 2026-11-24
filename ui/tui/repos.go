@@ -24,6 +24,9 @@ type repoDraft struct {
 	keySource     string
 	keyValue      string
 	caFile        string
+	authType      string
+	authUser      string
+	authSecret    string
 	aptSuite      string
 	aptComponents string
 	aptFlat       bool
@@ -34,6 +37,7 @@ func newRepoDraft(family string) repoDraft {
 	return repoDraft{
 		family:        family,
 		keySource:     repoKeySourceFile,
+		authType:      core.RepositoryAuthNone,
 		aptComponents: "main",
 	}
 }
@@ -45,6 +49,15 @@ func (d repoDraft) repository() core.PackageRepository {
 		URL:                   strings.TrimSpace(d.url),
 		CAFile:                strings.TrimSpace(d.caFile),
 		InsecureSkipTLSVerify: d.insecureTLS,
+	}
+	switch d.authType {
+	case core.RepositoryAuthBasic:
+		repo.AuthType = core.RepositoryAuthBasic
+		repo.AuthUsername = strings.TrimSpace(d.authUser)
+		repo.AuthPassword = d.authSecret
+	case core.RepositoryAuthBearer:
+		repo.AuthType = core.RepositoryAuthBearer
+		repo.AuthToken = strings.TrimSpace(d.authSecret)
 	}
 	switch d.keySource {
 	case repoKeySourceURL:
@@ -113,6 +126,17 @@ func repoKeySourceDisplay(source string) string {
 		return i18n.T("sem chave (inseguro)")
 	default:
 		return i18n.T("arquivo")
+	}
+}
+
+func repoAuthDisplay(mode string) string {
+	switch mode {
+	case core.RepositoryAuthBasic:
+		return "Basic Auth"
+	case core.RepositoryAuthBearer:
+		return "Bearer Token"
+	default:
+		return i18n.T("sem autenticação")
 	}
 }
 
@@ -200,6 +224,16 @@ func (m *Model) openRepoEdit(index int) {
 	m.repoKeySourceEdit = draft.keySource
 	m.repoKeyValueEdit.SetValue(draft.keyValue)
 	m.repoCAEdit.SetValue(draft.caFile)
+	m.repoAuthTypeEdit = draft.authType
+	if m.repoAuthTypeEdit == "" {
+		m.repoAuthTypeEdit = core.RepositoryAuthNone
+	}
+	if m.repoAuthUserEdit != nil {
+		m.repoAuthUserEdit.SetValue(draft.authUser)
+	}
+	if m.repoAuthSecretEdit != nil {
+		m.repoAuthSecretEdit.SetValue(draft.authSecret)
+	}
 	m.repoAPTSuiteEdit.SetValue(draft.aptSuite)
 	m.repoAPTComponentsEdit.SetValue(draft.aptComponents)
 	m.repoAPTFlatEdit = draft.aptFlat
@@ -210,6 +244,14 @@ func (m *Model) openRepoEdit(index int) {
 }
 
 func (m *Model) saveRepoEdit() {
+	authUser := ""
+	if m.repoAuthUserEdit != nil {
+		authUser = strings.TrimSpace(m.repoAuthUserEdit.Value())
+	}
+	authSecret := ""
+	if m.repoAuthSecretEdit != nil {
+		authSecret = m.repoAuthSecretEdit.Value()
+	}
 	draft := repoDraft{
 		name:          strings.TrimSpace(m.repoNameEdit.Value()),
 		family:        m.repoFamilyEdit,
@@ -217,6 +259,9 @@ func (m *Model) saveRepoEdit() {
 		keySource:     m.repoKeySourceEdit,
 		keyValue:      strings.TrimSpace(m.repoKeyValueEdit.Value()),
 		caFile:        strings.TrimSpace(m.repoCAEdit.Value()),
+		authType:      m.repoAuthTypeEdit,
+		authUser:      authUser,
+		authSecret:    authSecret,
 		aptSuite:      strings.TrimSpace(m.repoAPTSuiteEdit.Value()),
 		aptComponents: strings.TrimSpace(m.repoAPTComponentsEdit.Value()),
 		aptFlat:       m.repoAPTFlatEdit,

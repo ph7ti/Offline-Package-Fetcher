@@ -111,9 +111,28 @@ func (u *UI) showConfig() {
 		storageForm,
 		vSpace(8),
 		u.optionalCheck,
+		u.offlineBundleCheck,
 	))
+	u.refreshProfiles()
+	profileCard := u.sectionCard(
+		i18n.T("Perfis salvos"),
+		i18n.T("Reutilize configurações não sensíveis entre sessões. Nenhuma senha ou credencial é salva."),
+		container.NewVBox(
+			widget.NewForm(
+				widget.NewFormItem(i18n.T("Perfil"), u.profileSelect),
+				widget.NewFormItem(i18n.T("Nome"), u.profileNameEntry),
+			),
+			container.NewHBox(
+				u.secondaryButton(i18n.T("Carregar perfil"), theme.FolderOpenIcon(), u.loadSelectedProfile),
+				u.primaryButton(i18n.T("Salvar perfil"), theme.DocumentSaveIcon(), u.saveCurrentProfile),
+				u.ghostButton(i18n.T("Excluir perfil"), theme.DeleteIcon(), u.deleteSelectedProfile),
+				layout.NewSpacer(),
+			),
+		),
+	)
 	note := u.banner(i18n.T("Presets validados: Ubuntu 22.04/24.04, Debian 12, CentOS 7, Alpine 3.20 e famílias RPM recentes. “Automático” usa WSL compatível no Windows e Docker nos demais casos."), toneInfo)
 	content := container.NewVBox(
+		profileCard, vSpace(14),
 		targetCard, vSpace(14),
 		environmentCard, vSpace(14),
 		repoCard, vSpace(14),
@@ -145,11 +164,18 @@ func (u *UI) showSSH() {
 		u.detectStatus.SetText(i18n.T("Configuração SSH alterada; detecte novamente."))
 	}
 
+	importRow := container.NewBorder(nil, nil, nil,
+		u.secondaryButton(i18n.T("Importar"), theme.DownloadIcon(), u.importSSHConfigAlias),
+		u.sshConfigAlias,
+	)
 	connectionCard := u.sectionCard(i18n.T("Conexão"), i18n.T("Use chave ou senha. A host key é verificada estritamente por padrão."), widget.NewForm(
+		widget.NewFormItem(i18n.T("Importar ~/.ssh/config"), importRow),
 		widget.NewFormItem(i18n.T("Host do destino"), u.sshHost),
 		widget.NewFormItem(i18n.T("Porta"), u.sshPort),
 		widget.NewFormItem(i18n.T("Usuário"), u.sshUser),
 		widget.NewFormItem(i18n.T("Chave privada"), u.sshKey),
+		widget.NewFormItem(i18n.T("Passphrase da chave"), u.sshKeyPassphrase),
+		widget.NewFormItem(i18n.T("Agente SSH"), u.sshUseAgent),
 		widget.NewFormItem(i18n.T("Senha da conta"), u.sshPassword),
 		widget.NewFormItem("Known hosts", u.knownHosts),
 	))
@@ -424,6 +450,9 @@ func (u *UI) showResult() {
 			vSpace(10),
 			u.detailRow(i18n.T("Destino remoto"), u.result.RemoteDir),
 		)
+		if u.result.OfflineBundlePath != "" {
+			detailObjects = append(detailObjects, vSpace(10), u.detailRow(i18n.T("Bundle offline"), u.result.OfflineBundlePath))
+		}
 		if len(u.result.AlreadyInstalled) > 0 {
 			names := make([]string, 0, len(u.result.AlreadyInstalled))
 			for _, item := range u.result.AlreadyInstalled {
@@ -540,6 +569,15 @@ func (u *UI) showSettings() {
 		widget.NewFormItem(i18n.T("Diretório temporário"), u.settingsTemp),
 		widget.NewFormItem(i18n.T("Timeout de etapa (segundos)"), u.settingsTimeout),
 	))
+	runtimeCard := u.sectionCard(i18n.T("Runtime de contêiner"), i18n.T("Endpoint opcional para Podman ou Docker rootless (vazio usa detecção automática)."), widget.NewForm(
+		widget.NewFormItem(i18n.T("Container host (Docker/Podman)"), u.settingsContainerHost),
+	))
+	proxyCard := u.sectionCard(i18n.T("Proxy corporativo e CA"), i18n.T("Aplicado no contêiner isolado. Credenciais embutidas na URL do proxy não são persistidas."), widget.NewForm(
+		widget.NewFormItem("HTTP_PROXY", u.settingsHTTPProxy),
+		widget.NewFormItem("HTTPS_PROXY", u.settingsHTTPSProxy),
+		widget.NewFormItem("NO_PROXY", u.settingsNoProxy),
+		widget.NewFormItem(i18n.T("CA corporativa (PEM)"), u.settingsCACert),
+	))
 	syslogCard := u.sectionCard(i18n.T("Syslog externo"), i18n.T("Envio best-effort em background via RFC 5424. Falhas não interrompem o pipeline."), widget.NewForm(
 		widget.NewFormItem(i18n.T("Habilitar"), u.syslogCheck),
 		widget.NewFormItem("Host", u.syslogHost),
@@ -584,6 +622,11 @@ func (u *UI) showSettings() {
 		u.settings.DatabasePath = dbPath
 		u.settings.TempDir = strings.TrimSpace(u.settingsTemp.Text)
 		u.settings.StageTimeoutSecs = timeout
+		u.settings.ContainerHost = strings.TrimSpace(u.settingsContainerHost.Text)
+		u.settings.HTTPProxy = strings.TrimSpace(u.settingsHTTPProxy.Text)
+		u.settings.HTTPSProxy = strings.TrimSpace(u.settingsHTTPSProxy.Text)
+		u.settings.NoProxy = strings.TrimSpace(u.settingsNoProxy.Text)
+		u.settings.CACertFile = strings.TrimSpace(u.settingsCACert.Text)
 		u.settings.SyslogEnabled = u.syslogCheck.Checked
 		u.settings.SyslogHost = strings.TrimSpace(u.syslogHost.Text)
 		u.settings.SyslogPort = port
@@ -613,6 +656,8 @@ func (u *UI) showSettings() {
 		languageCard, vSpace(12),
 		databaseCard, vSpace(12),
 		storageCard, vSpace(12),
+		runtimeCard, vSpace(12),
+		proxyCard, vSpace(12),
 		syslogCard, vSpace(12),
 		note, vSpace(8),
 		container.NewHBox(u.ghostButton(i18n.T("Voltar"), theme.NavigateBackIcon(), u.showWelcome), layout.NewSpacer(),

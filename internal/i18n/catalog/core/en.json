@@ -101,5 +101,21 @@
   "URL do repositório sem host: %q": "repository URL without a host: %q",
   "URL do repositório não pode conter usuário/senha": "the repository URL must not contain a user/password",
   "URL do repositório não pode conter fragmento": "the repository URL must not contain a fragment",
-  "modo de coleta inválido: %q (use all, default ou none)": "invalid collection mode: %q (use all, default or none)"
+  "modo de coleta inválido: %q (use all, default ou none)": "invalid collection mode: %q (use all, default or none)",
+  "gerar bundle offline: %w": "generate offline bundle: %w",
+  "bundle offline gerado": "offline bundle generated",
+  "NO_PROXY contém caracteres inválidos": "NO_PROXY contains invalid characters",
+  "caminho da CA corporativa contém caracteres inválidos": "corporate CA path contains invalid characters",
+  "%s contém caracteres inválidos": "%s contains invalid characters",
+  "%s inválido: %w": "invalid %s: %w",
+  "%s deve usar http ou https": "%s must use http or https",
+  "%s sem host": "%s has no host",
+  "%s persistido não pode conter usuário/senha": "persisted %s must not contain user/password",
+  "informe autenticação Basic ou Bearer no repositório, não ambas": "provide Basic or Bearer authentication for the repository, not both",
+  "autenticação Basic do repositório exige usuário e senha": "repository Basic authentication requires username and password",
+  "credenciais do repositório contêm caracteres inválidos": "repository credentials contain invalid characters",
+  "autenticação Bearer do repositório exige token": "repository Bearer authentication requires a token",
+  "token do repositório contém caracteres inválidos": "repository token contains invalid characters",
+  "tipo de autenticação do repositório inválido: %q (use basic ou bearer)": "invalid repository authentication type: %q (use basic or bearer)",
+  "APK não suporta autenticação Bearer; use Basic Auth": "APK does not support Bearer authentication; use Basic Auth"
 }

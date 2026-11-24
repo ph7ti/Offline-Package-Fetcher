@@ -8,17 +8,24 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"opf/internal/core"
 )
 
 // Settings are non-secret global preferences. Passwords and private key
 // material must never be added here.
 type Settings struct {
 	FetchMethod      string `json:"fetch_method,omitempty"`
+	ContainerHost    string `json:"container_host,omitempty"`
 	TempDir          string `json:"temp_dir,omitempty"`
 	DatabasePath     string `json:"database_path,omitempty"`
 	StageTimeoutSecs int    `json:"stage_timeout_seconds,omitempty"`
 	DockerImage      string `json:"docker_image,omitempty"`
 	WSLDistro        string `json:"wsl_distro,omitempty"`
+	HTTPProxy        string `json:"http_proxy,omitempty"`
+	HTTPSProxy       string `json:"https_proxy,omitempty"`
+	NoProxy          string `json:"no_proxy,omitempty"`
+	CACertFile       string `json:"ca_cert_file,omitempty"`
 	// Language is the interface language: "auto" follows the operating system,
 	// otherwise "en", "pt-BR" or "es".
 	Language        string `json:"language,omitempty"`
@@ -171,11 +178,23 @@ func (s Settings) StageTimeout() time.Duration {
 	return time.Duration(s.StageTimeoutSecs) * time.Second
 }
 
+func (s Settings) ProxyConfig() core.ProxyConfig {
+	return core.ProxyConfig{
+		HTTPProxy:  s.HTTPProxy,
+		HTTPSProxy: s.HTTPSProxy,
+		NoProxy:    s.NoProxy,
+		CACertFile: s.CACertFile,
+	}
+}
+
 func (s Settings) Validate() error {
 	switch s.FetchMethod {
-	case "", "docker", "wsl", "auto":
+	case "", "docker", "podman", "wsl", "auto":
 	default:
 		return fmt.Errorf("método de fetch inválido: %q", s.FetchMethod)
+	}
+	if err := s.ProxyConfig().Validate(true); err != nil {
+		return err
 	}
 	if s.StageTimeoutSecs < 0 {
 		return errors.New("timeout de etapa não pode ser negativo")

@@ -14,13 +14,14 @@ import (
 // jumpDraft is the in-memory state of one SSH bridge. Passwords never leave
 // this struct and are never persisted.
 type jumpDraft struct {
-	host       string
-	port       string
-	user       string
-	authMode   string
-	password   string
-	keyPath    string
-	knownHosts string
+	host          string
+	port          string
+	user          string
+	authMode      string
+	password      string
+	keyPath       string
+	keyPassphrase string
+	knownHosts    string
 }
 
 func newJumpDraft() jumpDraft {
@@ -29,13 +30,14 @@ func newJumpDraft() jumpDraft {
 
 func (d jumpDraft) input() opfapp.SSHJumpInput {
 	return opfapp.SSHJumpInput{
-		Host:       d.host,
-		Port:       d.port,
-		User:       d.user,
-		AuthMode:   d.authMode,
-		Password:   d.password,
-		KeyPath:    d.keyPath,
-		KnownHosts: d.knownHosts,
+		Host:          d.host,
+		Port:          d.port,
+		User:          d.user,
+		AuthMode:      d.authMode,
+		Password:      d.password,
+		KeyPath:       d.keyPath,
+		KeyPassphrase: d.keyPassphrase,
+		KnownHosts:    d.knownHosts,
 	}
 }
 
@@ -54,6 +56,7 @@ func (d *jumpDraft) setMetadata(meta opfapp.SSHJumpMetadata) {
 	d.keyPath = meta.KeyPath
 	d.knownHosts = meta.KnownHosts
 	d.password = ""
+	d.keyPassphrase = ""
 }
 
 func (d jumpDraft) metadata() opfapp.SSHJumpMetadata {
@@ -78,6 +81,8 @@ func (d jumpDraft) summary() string {
 
 func jumpAuthDisplay(mode string) string {
 	switch mode {
+	case opfapp.SSHJumpAuthAgent:
+		return "ssh-agent"
 	case opfapp.SSHJumpAuthKey:
 		return i18n.T("chave")
 	case opfapp.SSHJumpAuthKeyPassword:
@@ -113,7 +118,7 @@ func (m *Model) setJumpMetadata(metas []opfapp.SSHJumpMetadata) bool {
 		draft := newJumpDraft()
 		draft.setMetadata(meta)
 		m.jumpDrafts = append(m.jumpDrafts, draft)
-		if meta.AuthMode != opfapp.SSHJumpAuthKey {
+		if meta.AuthMode != opfapp.SSHJumpAuthKey && meta.AuthMode != opfapp.SSHJumpAuthAgent {
 			needsPassword = true
 		}
 	}
@@ -153,6 +158,9 @@ func (m *Model) openJumpEdit(index int) {
 	m.jumpUserEdit.SetValue(draft.user)
 	m.jumpAuthEdit = draft.authMode
 	m.jumpKeyEdit.SetValue(draft.keyPath)
+	if m.jumpKeyPassphraseEdit != nil {
+		m.jumpKeyPassphraseEdit.SetValue(draft.keyPassphrase)
+	}
 	m.jumpPasswordEdit.SetValue(draft.password)
 	m.jumpKnownHostsEdit.SetValue(draft.knownHosts)
 	m.errorMsg = ""
@@ -161,14 +169,19 @@ func (m *Model) openJumpEdit(index int) {
 }
 
 func (m *Model) saveJumpEdit() {
+	passphrase := ""
+	if m.jumpKeyPassphraseEdit != nil {
+		passphrase = m.jumpKeyPassphraseEdit.Value()
+	}
 	draft := jumpDraft{
-		host:       strings.TrimSpace(m.jumpHostEdit.Value()),
-		port:       strings.TrimSpace(m.jumpPortEdit.Value()),
-		user:       strings.TrimSpace(m.jumpUserEdit.Value()),
-		authMode:   m.jumpAuthEdit,
-		password:   m.jumpPasswordEdit.Value(),
-		keyPath:    strings.TrimSpace(m.jumpKeyEdit.Value()),
-		knownHosts: strings.TrimSpace(m.jumpKnownHostsEdit.Value()),
+		host:          strings.TrimSpace(m.jumpHostEdit.Value()),
+		port:          strings.TrimSpace(m.jumpPortEdit.Value()),
+		user:          strings.TrimSpace(m.jumpUserEdit.Value()),
+		authMode:      m.jumpAuthEdit,
+		password:      m.jumpPasswordEdit.Value(),
+		keyPath:       strings.TrimSpace(m.jumpKeyEdit.Value()),
+		keyPassphrase: passphrase,
+		knownHosts:    strings.TrimSpace(m.jumpKnownHostsEdit.Value()),
 	}
 	index := m.jumpEditIdx
 	if index < 0 {

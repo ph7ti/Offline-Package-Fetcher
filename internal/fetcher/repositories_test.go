@@ -216,23 +216,38 @@ func TestConfigureRepositoriesRejectsFamilyMismatch(t *testing.T) {
 }
 
 func TestDownloadRepositoryFileTLS(t *testing.T) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if wantAuth := r.URL.Query().Get("auth"); wantAuth != "" && r.Header.Get("Authorization") != wantAuth {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		_, _ = w.Write([]byte("KEYDATA"))
 	}))
 	defer server.Close()
 
 	ctx := context.Background()
-	if _, err := downloadRepositoryFile(ctx, server.URL+"/key", nil, false); err == nil {
+	repo := core.PackageRepository{KeyURL: server.URL + "/key"}
+	if _, err := downloadRepositoryFile(ctx, repo, nil, core.ProxyConfig{}); err == nil {
 		t.Fatal("CA autoassinada deveria falhar por padrão")
 	}
-	data, err := downloadRepositoryFile(ctx, server.URL+"/key", nil, true)
+	insecureRepo := core.PackageRepository{KeyURL: server.URL + "/key", InsecureSkipTLSVerify: true}
+	data, err := downloadRepositoryFile(ctx, insecureRepo, nil, core.ProxyConfig{})
 	if err != nil || string(data) != "KEYDATA" {
 		t.Fatalf("insecure = %q, %v", data, err)
 	}
 	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
-	data, err = downloadRepositoryFile(ctx, server.URL+"/key", caPEM, false)
+	data, err = downloadRepositoryFile(ctx, repo, caPEM, core.ProxyConfig{})
 	if err != nil || string(data) != "KEYDATA" {
 		t.Fatalf("CA customizada = %q, %v", data, err)
+	}
+	bearerRepo := core.PackageRepository{
+		KeyURL:    server.URL + "/key?auth=Bearer+tok-abc",
+		AuthType:  core.RepositoryAuthBearer,
+		AuthToken: "tok-abc",
+	}
+	data, err = downloadRepositoryFile(ctx, bearerRepo, caPEM, core.ProxyConfig{})
+	if err != nil || string(data) != "KEYDATA" {
+		t.Fatalf("Bearer auth = %q, %v", data, err)
 	}
 }
 
@@ -241,12 +256,12 @@ func TestDownloadRepositoryFileLimitsAndUserinfo(t *testing.T) {
 		_, _ = w.Write([]byte(strings.Repeat("a", repositoryMaterialLimit+1)))
 	}))
 	defer server.Close()
-	if _, err := downloadRepositoryFile(context.Background(), server.URL+"/key", nil, false); err == nil || !strings.Contains(err.Error(), "maior que") {
+	if _, err := downloadRepositoryFile(context.Background(), core.PackageRepository{KeyURL: server.URL + "/key"}, nil, core.ProxyConfig{}); err == nil || !strings.Contains(err.Error(), "maior que") {
 		t.Fatalf("erro = %v", err)
 	}
 
 	withUser := strings.Replace(server.URL, "http://", "http://user:pass@", 1) + "/key"
-	if _, err := downloadRepositoryFile(context.Background(), withUser, nil, false); err == nil || !strings.Contains(err.Error(), "usuário/senha") {
+	if _, err := downloadRepositoryFile(context.Background(), core.PackageRepository{KeyURL: withUser}, nil, core.ProxyConfig{}); err == nil || !strings.Contains(err.Error(), "usuário/senha") {
 		t.Fatalf("erro = %v", err)
 	}
 }
@@ -325,4 +340,69 @@ func TestSanitizeRepositoryURL(t *testing.T) {
 	if got != "https://repo.interno/path" {
 		t.Fatalf("sanitize = %q", got)
 	}
+}
+
+func TestBuildPrivateRepoAuthScripts(t *testing.T) {
+	t.Run("apt basic auth", func(t *testing.T) {
+		repo := core.PackageRepository{
+			Name: "Corp", Family: core.RepositoryFamilyAPT,
+			URL: "https://repo.corp.local/apt", Suite: "jammy",
+			InsecureSkipGPGCheck: true,
+			AuthType:             core.RepositoryAuthBasic,
+			AuthUsername:         "svc-ci",
+			AuthPassword:         "s3cr3t-pass",
+		}
+		script, err := buildRepositoryScript(repo, 9, nil, nil)
+		if err != nil {
+			t.Fatalf("buildRepositoryScript: %v", err)
+		}
+		if !strings.Contains(script, "/etc/apt/auth.conf.d/opf-9-corp.conf") || !strings.Contains(script, "chmod 0600") {
+			t.Fatalf("script sem auth.conf.d 0600:\n%s", script)
+		}
+	})
+	t.Run("apt bearer token", func(t *testing.T) {
+		repo := core.PackageRepository{
+			Name: "CorpBearer", Family: core.RepositoryFamilyAPT,
+			URL: "https://repo.corp.local/apt", Suite: "jammy",
+			InsecureSkipGPGCheck: true,
+			AuthType:             core.RepositoryAuthBearer,
+			AuthToken:            "tok-xyz-123",
+		}
+		script, err := buildRepositoryScript(repo, 9, nil, nil)
+		if err != nil {
+			t.Fatalf("buildRepositoryScript: %v", err)
+		}
+		if !strings.Contains(script, "/etc/apt/apt.conf.d/99opf-9-corpbearer") || !strings.Contains(script, "chmod 0600") {
+			t.Fatalf("script sem apt.conf.d 0600:\n%s", script)
+		}
+	})
+	t.Run("rpm basic and bearer", func(t *testing.T) {
+		basic := core.PackageRepository{
+			Name: "RpmBasic", Family: core.RepositoryFamilyRPM,
+			URL: "https://repo.corp.local/rpm", InsecureSkipGPGCheck: true,
+			AuthType: core.RepositoryAuthBasic, AuthUsername: "u", AuthPassword: "p",
+		}
+		content := dnfRepoContent(basic, "9-rpmbasic", 9, "", "")
+		if !strings.Contains(content, "username=u") || !strings.Contains(content, "password=p") {
+			t.Fatalf("dnfRepoContent basic = %s", content)
+		}
+		bearer := core.PackageRepository{
+			Name: "RpmBearer", Family: core.RepositoryFamilyRPM,
+			URL: "https://repo.corp.local/rpm", InsecureSkipGPGCheck: true,
+			AuthType: core.RepositoryAuthBearer, AuthToken: "tok-rpm",
+		}
+		content = dnfRepoContent(bearer, "9-rpmbearer", 9, "", "")
+		if !strings.Contains(content, "set_http_headers=Authorization: Bearer tok-rpm") {
+			t.Fatalf("dnfRepoContent bearer = %s", content)
+		}
+	})
+	t.Run("redactRepoSecrets", func(t *testing.T) {
+		repo := core.PackageRepository{
+			AuthType: core.RepositoryAuthBasic, AuthUsername: "u", AuthPassword: "my-password", AuthToken: "my-token",
+		}
+		redacted := redactRepoSecrets(errors.New("failed with my-password and my-token"), repo)
+		if redacted == nil || strings.Contains(redacted.Error(), "my-password") || strings.Contains(redacted.Error(), "my-token") {
+			t.Fatalf("segredo não redigido: %v", redacted)
+		}
+	})
 }

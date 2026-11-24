@@ -22,7 +22,7 @@ func resolveCandidates(ctx context.Context, resolver core.DependencyResolver, ro
 		if root == "" {
 			continue
 		}
-		rootSet[root] = struct{}{}
+		rootSet[core.PackageBaseName(root)] = struct{}{}
 		names[root] = struct{}{}
 		deps, err := resolver.ListDependencies(ctx, root, includeOptional)
 		if err != nil {
@@ -51,7 +51,7 @@ func resolveCandidates(ctx context.Context, resolver core.DependencyResolver, ro
 		return nil, err
 	}
 	for i := range candidates {
-		if _, isRoot := rootSet[candidates[i].Name]; isRoot {
+		if _, isRoot := rootSet[core.PackageBaseName(candidates[i].Name)]; isRoot {
 			candidates[i].IsDependency = false
 		} else {
 			candidates[i].IsDependency = true

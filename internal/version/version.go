@@ -9,7 +9,7 @@ import (
 // These values are the release defaults. Release builds may override them with
 // -ldflags "-X opf/internal/version.Version=... -X opf/internal/version.Commit=...".
 var (
-	Version     = "0.3.1"
+	Version     = "0.4.0"
 	Commit      = ""
 	ReleaseDate = "2026-11-23"
 )

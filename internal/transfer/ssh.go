@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
@@ -30,12 +31,14 @@ const (
 
 // SSHConfig groups SSH connection parameters, including optional jump hosts.
 type SSHConfig struct {
-	Host       string
-	Port       int
-	User       string
-	KeyPath    string
-	Password   string
-	KnownHosts string
+	Host          string
+	Port          int
+	User          string
+	KeyPath       string
+	KeyPassphrase string
+	UseAgent      bool
+	Password      string
+	KnownHosts    string
 	// InsecureSkipHostKey disables SSH host key verification. It is an explicit
 	// opt-in and equivalent to StrictHostKeyChecking=no.
 	InsecureSkipHostKey bool
@@ -58,10 +61,11 @@ type TransferManager interface {
 type ProgressFunc func(stage string, current, total int64)
 
 type SSHTransferManager struct {
-	jumps    []*ssh.Client
-	client   *ssh.Client
-	sftp     *sftp.Client
-	progress ProgressFunc
+	jumps      []*ssh.Client
+	agentConns []io.Closer
+	client     *ssh.Client
+	sftp       *sftp.Client
+	progress   ProgressFunc
 }
 
 var _ TransferManager = (*SSHTransferManager)(nil)
@@ -97,22 +101,31 @@ func (m *SSHTransferManager) Connect(ctx context.Context, cfg SSHConfig) error {
 	}
 
 	var (
-		jumps []*ssh.Client
-		via   *ssh.Client
+		jumps      []*ssh.Client
+		agentConns []io.Closer
+		via        *ssh.Client
 	)
 	for i, jump := range cfg.JumpHosts {
-		client, err := dialSSH(ctx, jump, via)
+		client, agentConn, err := dialSSH(ctx, jump, via)
+		if agentConn != nil {
+			agentConns = append(agentConns, agentConn)
+		}
 		if err != nil {
 			closeSSHClients(jumps)
+			closeAll(agentConns)
 			return fmt.Errorf("conectar ao jump %d (%s): %w", i+1, jump.Host, err)
 		}
 		jumps = append(jumps, client)
 		via = client
 	}
 
-	client, err := dialSSH(ctx, cfg, via)
+	client, agentConn, err := dialSSH(ctx, cfg, via)
+	if agentConn != nil {
+		agentConns = append(agentConns, agentConn)
+	}
 	if err != nil {
 		closeSSHClients(jumps)
+		closeAll(agentConns)
 		return fmt.Errorf("conectar ao destino %s: %w", cfg.Host, err)
 	}
 
@@ -120,10 +133,12 @@ func (m *SSHTransferManager) Connect(ctx context.Context, cfg SSHConfig) error {
 	if err != nil {
 		client.Close()
 		closeSSHClients(jumps)
+		closeAll(agentConns)
 		return fmt.Errorf("abrir SFTP em %s: %w", cfg.Host, err)
 	}
 
 	m.jumps = jumps
+	m.agentConns = agentConns
 	m.client = client
 	m.sftp = sftpClient
 	return nil
@@ -399,14 +414,16 @@ func (m *SSHTransferManager) Close() error {
 		}
 	}
 	m.jumps = nil
+	closeAll(m.agentConns)
+	m.agentConns = nil
 	return errors.Join(errs...)
 }
 
-func dialSSH(ctx context.Context, cfg SSHConfig, via *ssh.Client) (*ssh.Client, error) {
+func dialSSH(ctx context.Context, cfg SSHConfig, via *ssh.Client) (*ssh.Client, io.Closer, error) {
 	addr := sshAddress(cfg.Host, cfg.Port)
-	clientConfig, err := buildSSHClientConfig(cfg)
+	clientConfig, agentConn, err := buildSSHClientConfigWithAgent(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var conn net.Conn
@@ -417,7 +434,10 @@ func dialSSH(ctx context.Context, cfg SSHConfig, via *ssh.Client) (*ssh.Client, 
 		conn, err = via.DialContext(ctx, "tcp", addr)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("abrir TCP para %s: %w", addr, err)
+		if agentConn != nil {
+			_ = agentConn.Close()
+		}
+		return nil, nil, fmt.Errorf("abrir TCP para %s: %w", addr, err)
 	}
 
 	done := make(chan struct{})
@@ -436,16 +456,27 @@ func dialSSH(ctx context.Context, cfg SSHConfig, via *ssh.Client) (*ssh.Client, 
 	<-watcherDone
 	if err != nil {
 		conn.Close()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+		if agentConn != nil {
+			_ = agentConn.Close()
 		}
-		return nil, fmt.Errorf("handshake SSH com %s: %w", addr, err)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, ctxErr
+		}
+		return nil, nil, fmt.Errorf("handshake SSH com %s: %w", addr, err)
 	}
 	_ = conn.SetDeadline(time.Time{})
-	return ssh.NewClient(clientConn, chans, reqs), nil
+	return ssh.NewClient(clientConn, chans, reqs), agentConn, nil
 }
 
 func buildSSHClientConfig(cfg SSHConfig) (*ssh.ClientConfig, error) {
+	clientCfg, agentConn, err := buildSSHClientConfigWithAgent(cfg)
+	if agentConn != nil {
+		_ = agentConn.Close()
+	}
+	return clientCfg, err
+}
+
+func buildSSHClientConfigWithAgent(cfg SSHConfig) (*ssh.ClientConfig, io.Closer, error) {
 	var hostKeyCallback ssh.HostKeyCallback
 	knownHostsPath := ""
 	if cfg.InsecureSkipHostKey {
@@ -454,11 +485,11 @@ func buildSSHClientConfig(cfg SSHConfig) (*ssh.ClientConfig, error) {
 		var err error
 		knownHostsPath, err = resolveKnownHosts(cfg.KnownHosts)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		knownHosts, err := knownhosts.New(knownHostsPath)
 		if err != nil {
-			return nil, fmt.Errorf("carregar known_hosts %q: %w", knownHostsPath, err)
+			return nil, nil, fmt.Errorf("carregar known_hosts %q: %w", knownHostsPath, err)
 		}
 		hostKeyCallback = func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			if err := knownHosts(hostname, remote, key); err != nil {
@@ -468,9 +499,9 @@ func buildSSHClientConfig(cfg SSHConfig) (*ssh.ClientConfig, error) {
 		}
 	}
 
-	authMethods, err := sshAuthMethods(cfg)
+	authMethods, agentConn, err := sshAuthMethods(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return &ssh.ClientConfig{
@@ -489,24 +520,52 @@ func buildSSHClientConfig(cfg SSHConfig) (*ssh.ClientConfig, error) {
 			ssh.KeyAlgoRSA,
 		},
 		HostKeyCallback: hostKeyCallback,
-	}, nil
+	}, agentConn, nil
 }
 
-func sshAuthMethods(cfg SSHConfig) ([]ssh.AuthMethod, error) {
+func sshAuthMethods(cfg SSHConfig) ([]ssh.AuthMethod, io.Closer, error) {
 	var methods []ssh.AuthMethod
+	var agentConn io.Closer
 
+	if cfg.UseAgent {
+		conn, err := dialSSHAgent()
+		if err != nil {
+			return nil, nil, err
+		}
+		agentConn = conn
+		agentClient := agent.NewClient(conn)
+		methods = append(methods, ssh.PublicKeysCallback(agentClient.Signers))
+	}
 	if cfg.KeyPath != "" {
 		keyPath, err := expandHome(cfg.KeyPath)
 		if err != nil {
-			return nil, fmt.Errorf("resolver chave SSH: %w", err)
+			if agentConn != nil {
+				_ = agentConn.Close()
+			}
+			return nil, nil, fmt.Errorf("resolver chave SSH: %w", err)
 		}
 		key, err := os.ReadFile(keyPath)
 		if err != nil {
-			return nil, fmt.Errorf("ler chave SSH %q: %w", keyPath, err)
+			if agentConn != nil {
+				_ = agentConn.Close()
+			}
+			return nil, nil, fmt.Errorf("ler chave SSH %q: %w", keyPath, err)
 		}
-		signer, err := ssh.ParsePrivateKey(key)
+		var signer ssh.Signer
+		if cfg.KeyPassphrase != "" {
+			signer, err = ssh.ParsePrivateKeyWithPassphrase(key, []byte(cfg.KeyPassphrase))
+		} else {
+			signer, err = ssh.ParsePrivateKey(key)
+		}
 		if err != nil {
-			return nil, fmt.Errorf("interpretar chave SSH %q: %w", keyPath, err)
+			if agentConn != nil {
+				_ = agentConn.Close()
+			}
+			var missing *ssh.PassphraseMissingError
+			if errors.As(err, &missing) {
+				return nil, nil, fmt.Errorf("chave SSH %q protegida por passphrase; informe OPF_SSH_KEY_PASSPHRASE ou habilite --ssh-agent", keyPath)
+			}
+			return nil, nil, fmt.Errorf("interpretar chave SSH %q: %w", keyPath, err)
 		}
 		methods = append(methods, ssh.PublicKeys(signer))
 	}
@@ -514,9 +573,9 @@ func sshAuthMethods(cfg SSHConfig) ([]ssh.AuthMethod, error) {
 		methods = append(methods, ssh.Password(cfg.Password))
 	}
 	if len(methods) == 0 {
-		return nil, errors.New("nenhuma autenticação SSH configurada (chave ou senha)")
+		return nil, nil, errors.New("nenhuma autenticação SSH configurada (chave, ssh-agent ou senha)")
 	}
-	return methods, nil
+	return methods, agentConn, nil
 }
 
 func resolveKnownHosts(value string) (string, error) {
@@ -555,8 +614,8 @@ func validateSSHConfig(cfg SSHConfig, role string) error {
 	if strings.ContainsRune(cfg.Host, 0) || strings.ContainsAny(cfg.Host, "\r\n") {
 		return fmt.Errorf("%s com host SSH inválido", role)
 	}
-	if cfg.KeyPath == "" && cfg.Password == "" {
-		return fmt.Errorf("%s sem chave nem senha SSH", role)
+	if cfg.KeyPath == "" && cfg.Password == "" && !cfg.UseAgent {
+		return fmt.Errorf("%s sem chave, ssh-agent nem senha SSH", role)
 	}
 	return nil
 }
@@ -694,5 +753,13 @@ func truncateOutput(value string, limit int) string {
 func closeSSHClients(clients []*ssh.Client) {
 	for i := len(clients) - 1; i >= 0; i-- {
 		_ = clients[i].Close()
+	}
+}
+
+func closeAll(closers []io.Closer) {
+	for i := len(closers) - 1; i >= 0; i-- {
+		if closers[i] != nil {
+			_ = closers[i].Close()
+		}
 	}
 }

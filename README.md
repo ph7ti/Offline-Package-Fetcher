@@ -13,7 +13,7 @@
 
 **Download Linux packages and their complete dependency closure for isolated environments — and, when it makes sense, ship them over SSH/SFTP and install them on the target.**
 
-Version **0.3.1** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
+Version **0.4.0** · License **GPL-3.0** · Go **1.27.4** · Linux, Windows and macOS (secondary)
 
 ---
 
@@ -56,14 +56,18 @@ A session in short:
 ## Highlights
 
 - **Three package families**: APT (Ubuntu/Debian), YUM/DNF (CentOS, RHEL, Rocky Linux, AlmaLinux, Fedora) and APK (Alpine).
-- **One isolated environment per session**: Docker for every family; WSL on Windows for APT.
+- **One isolated environment per session**: Docker, Podman (including rootless) for every family; WSL on Windows for APT.
+- **Air-gapped offline bundles (`--offline-bundle`)**: pack verified artifacts, `SHA256SUMS`, `metadata.json` and an executable `install-offline.sh` into a self-contained `.tar.gz`.
+- **Corporate proxy & custom CA**: inject `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` and custom PEM CAs directly into isolated containers without persisting proxy credentials.
+- **Package version pinning**: request exact versions (`pkg=version`, `pkg:arch=version`, `pkg-version`) across APT, RPM and APK with pre-check and *Package diff* support.
+- **Saved session profiles**: reusable non-secret presets in `profiles.json` (`0600`) across CLI and GUI.
 - **13-stage pipeline** with checkpointing, safe resume, cancellation (`abortada`) and guaranteed cleanup.
 - **SHA-256 integrity at three points** (P1 inside the environment, P2 in the host manifest, P3 on the target) with a single `SHA256SUMS` per session.
 - **Multiple packages per session**, with a remote pre-check for packages already installed and `--force-reinstall` when needed.
 - **Package diff (v0.3.0)**: optionally collect installed versions (`all`, `default` or `none`) and pause before the pipeline when packages would be upgraded, showing the version jump and asking whether to proceed. The inventory, diff and decision are saved in the report.
-- **SSH/SFTP** with strict host-key verification, key or password authentication and a **jump-host chain** with independent credentials per hop.
+- **SSH/SFTP** with strict host-key verification, passphrase-protected keys, native `ssh-agent` (Unix & Windows), `~/.ssh/config` alias/ProxyJump import, password authentication and a **jump-host chain** with independent credentials per hop.
 - **Remote installation** only after explicit confirmation, with `sudo` using the SSH account password sent **through stdin only**.
-- **Additional repositories** (APT/RPM/APK) used only inside the isolated environment, with GPG/TLS verified by default.
+- **Additional repositories** (APT/RPM/APK) used only inside the isolated environment, with GPG/TLS verified by default and ephemeral `Basic Auth` / `Bearer Token` support (never persisted).
 - **JSON and Markdown reports** per session, plus optional external **Syslog** (UDP/TCP, RFC 5424).
 - **Local history** in SQLite (sessions, packages, events, stages and requested packages) with logical archiving.
 - **Interface language follows the operating system** (English when the OS language is unsupported), with English, Brazilian Portuguese and Spanish available; select it in **Configurações Globais** (GUI and TUI) or use `--lang`/`OPF_LANG` in the CLI.
@@ -80,18 +84,19 @@ Fetch methods:
 
 | Method | Platforms | Families | Requirement |
 |:---|:---|:---|:---|
-| `docker` | Linux, macOS, Windows | all | reachable Docker daemon |
+| `docker` | Linux, macOS, Windows | all | reachable Docker daemon (including rootless Docker) |
+| `podman` | Linux, macOS, Windows | all | reachable Podman API socket (`podman.socket` / `podman machine`) |
 | `wsl` | Windows | APT only | WSL2 with a registered distribution and `root` access |
 
 Recognized architectures: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` and `i386`/`i686` (normalized per family: `amd64` for APT, `x86_64` for RPM, and so on).
 
-Known limits in v0.3.1:
+Known limits in v0.4.0:
 
-- **macOS** is a secondary platform and requires Docker to download packages.
-- **WSL** covers Ubuntu/Debian (APT) only; RPM/APK families require Docker.
+- **macOS** is a secondary platform and requires Docker or Podman to download packages.
+- **WSL** covers Ubuntu/Debian (APT) only; RPM/APK families require Docker or Podman.
 - **Remote installation** requires SSH, explicit confirmation and, when the user is not `root`, the account password for `sudo`.
 - **The GUI** does not build with `CGO_ENABLED=0` (the resulting binary is only a stub that exits with an error).
-- **Additional repositories** do not accept authentication (user/password) in this version.
+- **APK private repositories** support `Basic Auth` (inside the ephemeral container only); `Bearer Token` headers are not supported by the `apk` CLI.
 - **Interface language:** low-level diagnostics remain in Brazilian Portuguese even when another language is selected: package-manager and isolated-environment output (apt/dpkg, dnf/yum/rpm, apk, Docker/WSL tooling), error causes from the fetch/transfer/install/storage layers, and some internal log lines.
 - **Release packaging:** Windows executables are distributed raw inside `.zip` archives (not UPX-packed), which Cortex XDR and comparable EDR products accept; macOS binaries are `.tar.gz` archives because UPX cannot pack Mach-O. Code signing is recommended for wider trust.
 - **Integration tests** depend on the `integration` build tag and on Docker (plus WSL for the Windows-specific tests).
@@ -158,7 +163,7 @@ Releases publish **installers only** — no loose CLI/TUI/GUI binaries.
 
 Each release publishes **9 assets**: the eight installers above plus `SHA256SUMS`.
 
-1. Open [the v0.3.1 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.3.1).
+1. Open [the v0.4.0 release page](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.4.0).
 2. Download the installer for your platform and `SHA256SUMS`.
 3. Verify the download:
 
@@ -430,6 +435,6 @@ OPF was developed with **heavy AI assistance** — code generation, tests, revie
 
 ## Version
 
-**Version 0.3.1** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
+**Version 0.4.0** — current release. See the [changelog](CHANGELOG.md), the [user manual](docs/MANUAL.md) and the [technical document](docs/project-description.pt-BR.md).
 
 **English** | [Português (BR)](docs/README.pt-BR.md)

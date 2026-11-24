@@ -1,7 +1,7 @@
 ; OPF Full Windows installer (Inno Setup 6.3+) with GUI wizard.
 ;
 ; Build:
-;   ISCC.exe /DMyArch=amd64 /DAppVersion=0.3.1 ^
+;   ISCC.exe /DMyArch=amd64 /DAppVersion=0.4.0 ^
 ;     /DPayloadRoot=<repo>\dist\installer-payload opf-full.iss
 ;
 ; Four installation types: bundle (GUI+TUI+CLI), GUI only, TUI only, CLI only.
@@ -10,7 +10,7 @@
   #define MyArch "amd64"
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.3.1"
+  #define AppVersion "0.4.0"
 #endif
 #ifndef Priv
   #define Priv "admin"

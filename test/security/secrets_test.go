@@ -10,6 +10,7 @@ import (
 
 	"opf/internal/app"
 	"opf/internal/config"
+	"opf/internal/core"
 )
 
 func mustJSON(t *testing.T, value any) string {
@@ -121,5 +122,81 @@ func TestSSHJumpMetadataAndFingerprintExcludePasswords(t *testing.T) {
 	other.Host = "other-bridge"
 	if app.SSHJumpFingerprint(inputs) == app.SSHJumpFingerprint([]app.SSHJumpInput{other}) {
 		t.Fatal("fingerprint ignored the host change")
+	}
+}
+
+// TestProfilesNeverPersistSecrets asserts saved session profiles strip all
+// ephemeral repository credentials and never contain secret markers on disk.
+func TestProfilesNeverPersistSecrets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profiles.json")
+	profile := config.Profile{
+		Name:          "prod-ubuntu",
+		TargetOS:      "ubuntu",
+		TargetVersion: "22.04",
+		TargetArch:    "amd64",
+		FetchMethod:   "podman",
+		SSHHost:       "10.0.0.10",
+		SSHPort:       22,
+		SSHUser:       "ops",
+		SSHUseAgent:   true,
+		Repositories: []core.PackageRepository{{
+			Name:         "corp",
+			Family:       "apt",
+			URL:          "https://repo.corp.local/apt",
+			Suite:        "jammy",
+			KeyFile:      "/tmp/key.asc",
+			AuthType:     core.RepositoryAuthBasic,
+			AuthUsername: "ci-user",
+			AuthPassword: "super-secret-repo-password",
+			AuthToken:    "super-secret-bearer-token",
+		}},
+	}
+	if err := config.UpsertProfile(path, profile); err != nil {
+		t.Fatalf("UpsertProfile: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read profiles: %v", err)
+	}
+	raw := string(data)
+	assertNoSecretMarkers(t, "profiles file", raw)
+	for _, secret := range []string{"super-secret-repo-password", "super-secret-bearer-token", "ci-user"} {
+		if strings.Contains(raw, secret) {
+			t.Fatalf("profiles file leaked ephemeral repo auth %q: %s", secret, raw)
+		}
+	}
+}
+
+// TestPrivateRepoAuthNeverSerialized asserts PackageRepository JSON marshaling
+// omits all ephemeral authentication fields via json:"-".
+func TestPrivateRepoAuthNeverSerialized(t *testing.T) {
+	repo := core.PackageRepository{
+		Name:         "private-rpm",
+		Family:       "rpm",
+		URL:          "https://repo.corp.local/rpm",
+		KeyFile:      "/tmp/rpm.key",
+		AuthType:     core.RepositoryAuthBearer,
+		AuthUsername: "ignored-user",
+		AuthPassword: "ignored-password",
+		AuthToken:    "ephemeral-bearer-xyz",
+	}
+	encoded := mustJSON(t, repo)
+	assertNoSecretMarkers(t, "PackageRepository JSON", encoded)
+	if strings.Contains(encoded, "ephemeral-bearer-xyz") || strings.Contains(encoded, "ignored-user") {
+		t.Fatalf("ephemeral auth serialized: %s", encoded)
+	}
+}
+
+// TestProxySettingsRejectEmbeddedCredentials asserts config.Save rejects proxy
+// URLs carrying embedded userinfo so proxy credentials are never written to disk.
+func TestProxySettingsRejectEmbeddedCredentials(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	settings := config.Default()
+	settings.HTTPSProxy = "http://alice:s3cr3t@proxy.corp.local:8080"
+	if err := config.Save(path, settings); err == nil {
+		t.Fatal("config.Save accepted proxy URL with embedded credentials")
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("config.Save wrote file despite rejecting proxy credentials")
 	}
 }

@@ -48,6 +48,11 @@ type PipelineConfig struct {
 	Installer      InstallExecutor
 	ConfirmInstall InstallConfirmation
 
+	// OfflineBundlePath optionally writes a self-contained air-gapped .tar.gz
+	// archive (artifacts + SHA256SUMS + metadata.json + install-offline.sh).
+	// Use "auto" to place it under the session output directory.
+	OfflineBundlePath string
+
 	// ResumeFrom > 1 retoma uma sessão existente a partir de uma etapa segura.
 	ResumeFrom int
 }
@@ -57,6 +62,7 @@ type PipelineResult struct {
 	StartStep           int
 	OutputDir           string
 	CaminhoManifesto    string
+	OfflineBundlePath   string
 	RemoteDir           string
 	Artifacts           []PackageArtifact
 	Installed           bool
@@ -311,13 +317,17 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 			}
 		}
 		if !cfg.ForceReinstall && len(installed) > 0 {
-			installedSet := make(map[string]struct{}, len(installed))
+			installedBy := make(map[string]string, len(installed))
 			for _, p := range installed {
-				installedSet[p.Name] = struct{}{}
+				installedBy[PackageBaseName(p.Name)] = p.Version
 			}
 			filtered := roots[:0]
 			for _, root := range roots {
-				if _, ok := installedSet[root]; !ok || cfg.UpgradeRoots[root] {
+				base := PackageBaseName(root)
+				installedVer, ok := installedBy[base]
+				pinnedVer := PackagePinnedVersion(root)
+				versionMismatch := pinnedVer != "" && installedVer != pinnedVer
+				if !ok || cfg.UpgradeRoots[root] || cfg.UpgradeRoots[base] || versionMismatch {
 					filtered = append(filtered, root)
 				}
 			}
@@ -433,6 +443,30 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 		}
 		manifestPath = manifest.Caminho
 		persistExecution(ctx, cfg, s, outDir, remoteDir, logger)
+	}
+
+	var offlineBundlePath string
+	if bundleTarget := strings.TrimSpace(cfg.OfflineBundlePath); bundleTarget != "" {
+		if strings.EqualFold(bundleTarget, "auto") {
+			bundleTarget = filepath.Join(outDir, fmt.Sprintf("opf-bundle-sessao-%d.tar.gz", s.ID))
+		}
+		generated, bundleErr := GenerateOfflineBundle(OfflineBundleRequest{
+			OutputPath:    bundleTarget,
+			SessionID:     s.ID,
+			TargetOS:      s.TargetOS,
+			TargetVersion: s.TargetVersion,
+			TargetArch:    s.TargetArch,
+			ManifestPath:  manifestPath,
+			Artifacts:     artifacts,
+			Requested:     roots,
+		})
+		if bundleErr != nil {
+			return nil, fmt.Errorf(i18n.T("gerar bundle offline: %w"), bundleErr)
+		}
+		offlineBundlePath = generated
+		registrarEvento(ctx, cfg.Repo, cfg.EventSink, logger, s.ID, EventoDownload, i18n.T("bundle offline gerado"), map[string]any{
+			"bundle": offlineBundlePath, "artefatos": len(artifacts),
+		})
 	}
 
 	if len(artifacts) > 0 && startStep <= 10 && cfg.Transfer != nil && cfg.Inspector != nil {
@@ -553,7 +587,7 @@ func ExecutarPipeline(ctx context.Context, cfg PipelineConfig, s *Sessao) (resul
 	logger.Info("pipeline concluído", "artefatos", len(artifacts), "instalado", installed)
 	return &PipelineResult{
 		SessaoID: s.ID, StartStep: startStep, OutputDir: outDir,
-		CaminhoManifesto: manifestPath, RemoteDir: remoteDir,
+		CaminhoManifesto: manifestPath, OfflineBundlePath: offlineBundlePath, RemoteDir: remoteDir,
 		Artifacts: artifacts, Installed: installed, InstallDeclined: declined,
 		AlreadyInstalled: alreadyInstalled,
 	}, nil

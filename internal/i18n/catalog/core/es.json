@@ -101,5 +101,21 @@
   "URL do repositório sem host: %q": "URL del repositorio sin host: %q",
   "URL do repositório não pode conter usuário/senha": "la URL del repositorio no puede contener usuario/contraseña",
   "URL do repositório não pode conter fragmento": "la URL del repositorio no puede contener un fragmento",
-  "modo de coleta inválido: %q (use all, default ou none)": "modo de recopilación no válido: %q (use all, default o none)"
+  "modo de coleta inválido: %q (use all, default ou none)": "modo de recopilación no válido: %q (use all, default o none)",
+  "gerar bundle offline: %w": "generar paquete offline: %w",
+  "bundle offline gerado": "paquete offline generado",
+  "NO_PROXY contém caracteres inválidos": "NO_PROXY contiene caracteres no válidos",
+  "caminho da CA corporativa contém caracteres inválidos": "la ruta de la CA corporativa contiene caracteres no válidos",
+  "%s contém caracteres inválidos": "%s contiene caracteres no válidos",
+  "%s inválido: %w": "%s no válido: %w",
+  "%s deve usar http ou https": "%s debe usar http o https",
+  "%s sem host": "%s sin host",
+  "%s persistido não pode conter usuário/senha": "%s persistido no puede contener usuario/contraseña",
+  "informe autenticação Basic ou Bearer no repositório, não ambas": "indique autenticación Basic o Bearer en el repositorio, no ambas",
+  "autenticação Basic do repositório exige usuário e senha": "la autenticación Basic del repositorio requiere usuario y contraseña",
+  "credenciais do repositório contêm caracteres inválidos": "las credenciales del repositorio contienen caracteres no válidos",
+  "autenticação Bearer do repositório exige token": "la autenticación Bearer del repositorio requiere un token",
+  "token do repositório contém caracteres inválidos": "el token del repositorio contiene caracteres no válidos",
+  "tipo de autenticação do repositório inválido: %q (use basic ou bearer)": "tipo de autenticación del repositorio no válido: %q (use basic o bearer)",
+  "APK não suporta autenticação Bearer; use Basic Auth": "APK no admite autenticación Bearer; use Basic Auth"
 }

@@ -16,6 +16,10 @@ const (
 	RepositoryFamilyAPT = "apt"
 	RepositoryFamilyRPM = "rpm"
 	RepositoryFamilyAPK = "apk"
+
+	RepositoryAuthNone   = ""
+	RepositoryAuthBasic  = "basic"
+	RepositoryAuthBearer = "bearer"
 )
 
 var (
@@ -28,7 +32,8 @@ var (
 // PackageRepository describes an additional package repository used only
 // inside the isolated download environment. It is deliberately named
 // PackageRepository to avoid clashing with the persistence Repository
-// interface. No authentication material is part of this version.
+// interface. Ephemeral authentication fields use json:"-" so secrets are never
+// persisted to SQLite, config.json, profiles.json or reports.
 type PackageRepository struct {
 	Name                  string   `json:"name"`
 	Family                string   `json:"family"`
@@ -41,6 +46,11 @@ type PackageRepository struct {
 	Flat                  bool     `json:"flat,omitempty"`
 	InsecureSkipTLSVerify bool     `json:"insecure_skip_tls_verify,omitempty"`
 	InsecureSkipGPGCheck  bool     `json:"insecure_skip_gpg_check,omitempty"`
+
+	AuthType     string `json:"-"`
+	AuthUsername string `json:"-"`
+	AuthPassword string `json:"-"`
+	AuthToken    string `json:"-"`
 }
 
 // RepositorySlug converts a human name into a filesystem-safe identifier used
@@ -102,6 +112,45 @@ func normalizePackageRepository(repo PackageRepository, targetFamily string) (Pa
 	repo.CAFile = strings.TrimSpace(repo.CAFile)
 	repo.Suite = strings.TrimSpace(repo.Suite)
 	repo.Components = normalizeComponents(repo.Components)
+	repo.AuthType = strings.ToLower(strings.TrimSpace(repo.AuthType))
+	repo.AuthUsername = strings.TrimSpace(repo.AuthUsername)
+	repo.AuthToken = strings.TrimSpace(repo.AuthToken)
+
+	if repo.AuthType == "" {
+		switch {
+		case repo.AuthToken != "" && (repo.AuthUsername != "" || repo.AuthPassword != ""):
+			return PackageRepository{}, errors.New(i18n.T("informe autenticação Basic ou Bearer no repositório, não ambas"))
+		case repo.AuthToken != "":
+			repo.AuthType = RepositoryAuthBearer
+		case repo.AuthUsername != "" || repo.AuthPassword != "":
+			repo.AuthType = RepositoryAuthBasic
+		}
+	}
+	switch repo.AuthType {
+	case "":
+	case RepositoryAuthBasic:
+		if repo.AuthUsername == "" || repo.AuthPassword == "" {
+			return PackageRepository{}, errors.New(i18n.T("autenticação Basic do repositório exige usuário e senha"))
+		}
+		if repo.AuthToken != "" {
+			return PackageRepository{}, errors.New(i18n.T("informe autenticação Basic ou Bearer no repositório, não ambas"))
+		}
+		if repoControlCharsExpr.MatchString(repo.AuthUsername) || repoControlCharsExpr.MatchString(repo.AuthPassword) {
+			return PackageRepository{}, errors.New(i18n.T("credenciais do repositório contêm caracteres inválidos"))
+		}
+	case RepositoryAuthBearer:
+		if repo.AuthToken == "" {
+			return PackageRepository{}, errors.New(i18n.T("autenticação Bearer do repositório exige token"))
+		}
+		if repo.AuthUsername != "" || repo.AuthPassword != "" {
+			return PackageRepository{}, errors.New(i18n.T("informe autenticação Basic ou Bearer no repositório, não ambas"))
+		}
+		if repoControlCharsExpr.MatchString(repo.AuthToken) || strings.ContainsAny(repo.AuthToken, " \t") {
+			return PackageRepository{}, errors.New(i18n.T("token do repositório contém caracteres inválidos"))
+		}
+	default:
+		return PackageRepository{}, fmt.Errorf(i18n.T("tipo de autenticação do repositório inválido: %q (use basic ou bearer)"), repo.AuthType)
+	}
 
 	if repo.Family == "" {
 		repo.Family = targetFamily
@@ -135,6 +184,9 @@ func normalizePackageRepository(repo PackageRepository, targetFamily string) (Pa
 	}
 	if repo.Family == RepositoryFamilyAPK && repo.InsecureSkipTLSVerify {
 		return PackageRepository{}, errors.New(i18n.T("APK não suporta ignorar TLS por repositório; use CA customizada"))
+	}
+	if repo.Family == RepositoryFamilyAPK && repo.AuthType == RepositoryAuthBearer {
+		return PackageRepository{}, errors.New(i18n.T("APK não suporta autenticação Bearer; use Basic Auth"))
 	}
 
 	switch repo.Family {

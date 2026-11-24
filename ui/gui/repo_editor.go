@@ -65,10 +65,39 @@ type repoRow struct {
 	keySource     *widget.Select
 	keyValue      *widget.Entry
 	caFile        *widget.Entry
+	authType      *widget.Select
+	authUser      *widget.Entry
+	authSecret    *widget.Entry
 	aptSuite      *widget.Entry
 	aptComponents *widget.Entry
 	aptFlat       *widget.Check
 	insecureTLS   *widget.Check
+}
+
+func repoAuthOptions() []string {
+	return []string{i18n.T("Sem autenticação"), "Basic Auth", "Bearer Token"}
+}
+
+func repoAuthMode(selected string) string {
+	switch strings.TrimSpace(selected) {
+	case "Basic Auth":
+		return core.RepositoryAuthBasic
+	case "Bearer Token":
+		return core.RepositoryAuthBearer
+	default:
+		return core.RepositoryAuthNone
+	}
+}
+
+func repoAuthLabel(mode string) string {
+	switch mode {
+	case core.RepositoryAuthBasic:
+		return "Basic Auth"
+	case core.RepositoryAuthBearer:
+		return "Bearer Token"
+	default:
+		return i18n.T("Sem autenticação")
+	}
 }
 
 func newRepoRow(family string) *repoRow {
@@ -79,6 +108,9 @@ func newRepoRow(family string) *repoRow {
 		keySource:     widget.NewSelect(repoKeySourceOptions(), nil),
 		keyValue:      widget.NewEntry(),
 		caFile:        widget.NewEntry(),
+		authType:      widget.NewSelect(repoAuthOptions(), nil),
+		authUser:      widget.NewEntry(),
+		authSecret:    widget.NewPasswordEntry(),
 		aptSuite:      widget.NewEntry(),
 		aptComponents: widget.NewEntry(),
 		aptFlat:       widget.NewCheck(i18n.T("Repositório flat (sem suite/components)"), nil),
@@ -89,14 +121,36 @@ func newRepoRow(family string) *repoRow {
 	row.url.SetPlaceHolder(i18n.T("https://repo.interno/caminho"))
 	row.keyValue.SetPlaceHolder(i18n.T("chave do repositório (arquivo ou URL)"))
 	row.caFile.SetPlaceHolder(i18n.T("CA customizada (opcional)"))
+	row.authUser.SetPlaceHolder(i18n.T("usuário (somente em memória)"))
+	row.authSecret.SetPlaceHolder(i18n.T("senha ou bearer token (somente em memória)"))
 	row.aptSuite.SetPlaceHolder(i18n.T("ex.: bookworm, jammy"))
 	row.aptComponents.SetText("main")
 	row.keySource.OnChanged = func(string) { row.syncKeySource() }
+	row.authType.OnChanged = func(string) { row.syncAuthFields() }
 	row.aptFlat.OnChanged = func(bool) { row.syncAPTFields() }
 	row.keySource.SetSelected(repoKeySourceLabel(0))
+	row.authType.SetSelected(repoAuthLabel(core.RepositoryAuthNone))
 	row.syncKeySource()
+	row.syncAuthFields()
 	row.syncFamilyFields()
 	return row
+}
+
+func (r *repoRow) syncAuthFields() {
+	if r.authType == nil {
+		return
+	}
+	switch repoAuthMode(r.authType.Selected) {
+	case core.RepositoryAuthBasic:
+		r.authUser.Enable()
+		r.authSecret.Enable()
+	case core.RepositoryAuthBearer:
+		r.authUser.Disable()
+		r.authSecret.Enable()
+	default:
+		r.authUser.Disable()
+		r.authSecret.Disable()
+	}
 }
 
 // refreshKeySourceOptions rebuilds the key-source labels in the active language
@@ -158,6 +212,17 @@ func (r *repoRow) repository() core.PackageRepository {
 		URL:                   strings.TrimSpace(r.url.Text),
 		CAFile:                strings.TrimSpace(r.caFile.Text),
 		InsecureSkipTLSVerify: r.insecureTLS.Checked,
+	}
+	if r.authType != nil {
+		switch repoAuthMode(r.authType.Selected) {
+		case core.RepositoryAuthBasic:
+			repo.AuthType = core.RepositoryAuthBasic
+			repo.AuthUsername = strings.TrimSpace(r.authUser.Text)
+			repo.AuthPassword = r.authSecret.Text
+		case core.RepositoryAuthBearer:
+			repo.AuthType = core.RepositoryAuthBearer
+			repo.AuthToken = strings.TrimSpace(r.authSecret.Text)
+		}
 	}
 	switch repoKeySourceIndex(r.keySource.Selected) {
 	case 1:
@@ -337,6 +402,9 @@ func (u *UI) repoRowCard(row *repoRow, index int) fyne.CanvasObject {
 		widget.NewFormItem(i18n.T("Chave"), row.keySource),
 		widget.NewFormItem(i18n.T("Chave (arquivo/URL)"), keyRow),
 		widget.NewFormItem(i18n.T("CA customizada"), caRow),
+		widget.NewFormItem(i18n.T("Autenticação efêmera"), row.authType),
+		widget.NewFormItem(i18n.T("Usuário do repositório"), row.authUser),
+		widget.NewFormItem(i18n.T("Senha / Token"), row.authSecret),
 		widget.NewFormItem(i18n.T("TLS"), row.insecureTLS),
 	}
 	if row.family == core.RepositoryFamilyAPT {

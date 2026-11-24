@@ -61,6 +61,9 @@ func (i *Inspector) InspectPackages(ctx context.Context, pkgs []string) ([]core.
 		if pkg == "" {
 			continue
 		}
+		if _, err := core.ParsePackageSpec(i.family, pkg); err == nil {
+			pkg = core.PackageBaseName(pkg)
+		}
 		if !packageNamePattern.MatchString(pkg) {
 			return nil, fmt.Errorf("nome de pacote inválido no pré-check: %q", pkg)
 		}

@@ -39,6 +39,10 @@ func (r dockerRepositoryRunner) ExecScript(ctx context.Context, script string) (
 // repository configuration inside the isolated environment. It never writes
 // repository configuration on the remote destination.
 func configureRepositories(ctx context.Context, runner repositoryRunner, family string, sessionID int64, repos []core.PackageRepository, logger *slog.Logger) error {
+	return configureRepositoriesWithProxy(ctx, runner, family, sessionID, repos, core.ProxyConfig{}, logger)
+}
+
+func configureRepositoriesWithProxy(ctx context.Context, runner repositoryRunner, family string, sessionID int64, repos []core.PackageRepository, proxy core.ProxyConfig, logger *slog.Logger) error {
 	if len(repos) == 0 {
 		return nil
 	}
@@ -50,13 +54,13 @@ func configureRepositories(ctx context.Context, runner repositoryRunner, family 
 		return err
 	}
 	for _, repo := range normalized {
-		key, ca, err := loadRepositoryMaterial(ctx, repo)
+		key, ca, err := loadRepositoryMaterial(ctx, repo, proxy)
 		if err != nil {
-			return fmt.Errorf("carregar material do repositório %q: %w", repo.Name, err)
+			return fmt.Errorf("carregar material do repositório %q: %w", repo.Name, redactRepoSecrets(err, repo))
 		}
 		script, err := buildRepositoryScript(repo, sessionID, key, ca)
 		if err != nil {
-			return fmt.Errorf("montar repositório %q: %w", repo.Name, err)
+			return fmt.Errorf("montar repositório %q: %w", repo.Name, redactRepoSecrets(err, repo))
 		}
 		if repo.InsecureSkipGPGCheck {
 			logger.Warn("repositório adicional com verificação de GPG desabilitada",
@@ -70,10 +74,14 @@ func configureRepositories(ctx context.Context, runner repositoryRunner, family 
 			logger.Warn("repositório adicional usa HTTP sem TLS; a assinatura GPG continua obrigatória por padrão",
 				"repositorio", repo.Name, "familia", family)
 		}
+		if repo.AuthType != "" {
+			logger.Info("autenticação efêmera configurada para repositório adicional",
+				"repositorio", repo.Name, "familia", family, "auth_type", repo.AuthType)
+		}
 		logger.Info("configurando repositório adicional",
 			"repositorio", repo.Name, "familia", family, "url", sanitizeRepositoryURL(repo.URL))
 		if _, err := runner.ExecScript(ctx, script); err != nil {
-			return fmt.Errorf("configurar repositório %q: %w", repo.Name, err)
+			return fmt.Errorf("configurar repositório %q: %w", repo.Name, redactRepoSecrets(err, repo))
 		}
 	}
 	return nil
@@ -91,8 +99,8 @@ func cleanupRepositories(ctx context.Context, runner repositoryRunner, family st
 	}
 	prefix := fmt.Sprintf("opf-%d-", sessionID)
 	script := fmt.Sprintf(
-		"rm -f /etc/apt/sources.list.d/%s*.list /etc/apt/apt.conf.d/99%s* /usr/share/keyrings/%s*.gpg /etc/apt/%s*-ca.pem",
-		prefix, prefix, prefix, prefix,
+		"rm -f /etc/apt/sources.list.d/%s*.list /etc/apt/apt.conf.d/99%s* /etc/apt/auth.conf.d/%s*.conf /usr/share/keyrings/%s*.gpg /etc/apt/%s*-ca.pem",
+		prefix, prefix, prefix, prefix, prefix,
 	)
 	if _, err := runner.ExecScript(ctx, script); err != nil {
 		return fmt.Errorf("remover repositórios adicionais do ambiente: %w", err)
@@ -169,19 +177,34 @@ func buildAPTRepositoryScript(repo core.PackageRepository, sessionID int64, key,
 	source.WriteString(aptSourceContent(repo, keyringPath))
 	script.addFile(sourcePath, []byte(source.String()), "0644")
 
+	host := repositoryURLHost(repo.URL)
 	if strings.HasPrefix(strings.ToLower(repo.URL), "https://") && (len(ca) > 0 || repo.InsecureSkipTLSVerify) {
-		host := repositoryURLHost(repo.URL)
 		if host == "" {
 			return "", fmt.Errorf("URL HTTPS sem host")
 		}
 		if len(ca) > 0 {
 			script.addFile(caPath, ca, "0644")
 		}
-		confCAPath := ""
-		if len(ca) > 0 {
-			confCAPath = caPath
+	}
+	confCAPath := ""
+	if len(ca) > 0 && strings.HasPrefix(strings.ToLower(repo.URL), "https://") {
+		confCAPath = caPath
+	}
+	confBody := aptConfContent(repo, host, confCAPath)
+	if confBody != "" {
+		mode := "0644"
+		if repo.AuthType == core.RepositoryAuthBearer {
+			mode = "0600"
 		}
-		script.addFile(confPath, []byte(aptConfContent(repo, host, confCAPath)), "0644")
+		script.addFile(confPath, []byte(confBody), mode)
+	}
+	if repo.AuthType == core.RepositoryAuthBasic {
+		if host == "" {
+			return "", fmt.Errorf("URL sem host para autenticação APT")
+		}
+		authPath := "/etc/apt/auth.conf.d/opf-" + prefix + ".conf"
+		authBody := fmt.Sprintf("machine %s login %s password %s\n", host, repo.AuthUsername, repo.AuthPassword)
+		script.addFile(authPath, []byte(authBody), "0600")
 	}
 	return script.String(), nil
 }
@@ -209,6 +232,13 @@ func aptConfContent(repo core.PackageRepository, host, caPath string) string {
 	if repo.InsecureSkipTLSVerify {
 		fmt.Fprintf(&conf, "Acquire::https::%s::Verify-Peer \"false\";\n", host)
 	}
+	if repo.AuthType == core.RepositoryAuthBearer && host != "" {
+		scheme := "https"
+		if strings.HasPrefix(strings.ToLower(repo.URL), "http://") {
+			scheme = "http"
+		}
+		fmt.Fprintf(&conf, "Acquire::%s::%s::ExtraHeader:: \"Authorization: Bearer %s\";\n", scheme, host, repo.AuthToken)
+	}
 	return conf.String()
 }
 
@@ -233,7 +263,11 @@ func buildRPMRepositoryScript(repo core.PackageRepository, sessionID int64, key,
 	if len(ca) > 0 && !repo.InsecureSkipTLSVerify {
 		confCAPath = caPath
 	}
-	script.addFile(repoPath, []byte(dnfRepoContent(repo, prefix, sessionID, keyPath, confCAPath)), "0644")
+	repoMode := "0644"
+	if repo.AuthType != "" {
+		repoMode = "0600"
+	}
+	script.addFile(repoPath, []byte(dnfRepoContent(repo, prefix, sessionID, keyPath, confCAPath)), repoMode)
 	return script.String(), nil
 }
 
@@ -258,12 +292,22 @@ func dnfRepoContent(repo core.PackageRepository, prefix string, sessionID int64,
 			fmt.Fprintf(&content, "sslcacert=%s\n", caPath)
 		}
 	}
+	switch repo.AuthType {
+	case core.RepositoryAuthBasic:
+		fmt.Fprintf(&content, "username=%s\n", repo.AuthUsername)
+		fmt.Fprintf(&content, "password=%s\n", repo.AuthPassword)
+	case core.RepositoryAuthBearer:
+		fmt.Fprintf(&content, "set_http_headers=Authorization: Bearer %s\n", repo.AuthToken)
+	}
 	return content.String()
 }
 
 func buildAPKRepositoryScript(repo core.PackageRepository, sessionID int64, key, ca []byte) (string, error) {
 	if repo.InsecureSkipTLSVerify {
 		return "", fmt.Errorf("APK não suporta ignorar TLS por repositório")
+	}
+	if repo.AuthType == core.RepositoryAuthBearer {
+		return "", fmt.Errorf("APK não suporta autenticação Bearer; use Basic Auth")
 	}
 	prefix := repositoryFilePrefix(sessionID, repo.Name)
 	script := newRepositoryScript()
@@ -280,12 +324,22 @@ func buildAPKRepositoryScript(repo core.PackageRepository, sessionID int64, key,
 			quoteRepositoryPath(caPath) + " >> /etc/ssl/certs/ca-certificates.crt && rm -f " + quoteRepositoryPath(caPath))
 	}
 	script.addCommand("mkdir -p /etc/apk && touch /etc/apk/repositories")
-	urlLine := quoteRepositoryPath(repo.URL)
+	repoLine := repo.URL
+	if repo.AuthType == core.RepositoryAuthBasic {
+		parsed, err := url.Parse(repo.URL)
+		if err != nil {
+			return "", err
+		}
+		parsed.User = url.UserPassword(repo.AuthUsername, repo.AuthPassword)
+		repoLine = parsed.String()
+		script.addCommand("chmod 0600 /etc/apk/repositories")
+	}
+	urlLine := quoteRepositoryPath(repoLine)
 	script.addCommand("grep -qxF " + urlLine + " /etc/apk/repositories || printf '%s\\n' " + urlLine + " >> /etc/apk/repositories")
 	return script.String(), nil
 }
 
-func loadRepositoryMaterial(ctx context.Context, repo core.PackageRepository) (key, ca []byte, err error) {
+func loadRepositoryMaterial(ctx context.Context, repo core.PackageRepository, proxy core.ProxyConfig) (key, ca []byte, err error) {
 	if repo.CAFile != "" {
 		ca, err = readRepositoryFile(repo.CAFile)
 		if err != nil {
@@ -299,7 +353,7 @@ func loadRepositoryMaterial(ctx context.Context, repo core.PackageRepository) (k
 			return nil, nil, fmt.Errorf("ler chave %q: %w", repo.KeyFile, err)
 		}
 	case repo.KeyURL != "":
-		key, err = downloadRepositoryFile(ctx, repo.KeyURL, ca, repo.InsecureSkipTLSVerify)
+		key, err = downloadRepositoryFile(ctx, repo, ca, proxy)
 		if err != nil {
 			return nil, nil, fmt.Errorf("baixar chave %q: %w", sanitizeRepositoryURL(repo.KeyURL), err)
 		}
@@ -331,7 +385,9 @@ func readRepositoryFile(filename string) ([]byte, error) {
 	return data, nil
 }
 
-func downloadRepositoryFile(ctx context.Context, rawURL string, ca []byte, insecure bool) ([]byte, error) {
+func downloadRepositoryFile(ctx context.Context, repo core.PackageRepository, ca []byte, proxy core.ProxyConfig) ([]byte, error) {
+	rawURL := repo.KeyURL
+	insecure := repo.InsecureSkipTLSVerify
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, err
@@ -352,7 +408,20 @@ func downloadRepositoryFile(ctx context.Context, rawURL string, ca []byte, insec
 	if base, ok := http.DefaultTransport.(*http.Transport); ok {
 		transport = base.Clone()
 	}
-	if strings.EqualFold(parsed.Scheme, "https") && (len(ca) > 0 || insecure) {
+	if proxyURL := selectProxyURL(parsed.Scheme, proxy); proxyURL != nil {
+		transport.Proxy = http.ProxyURL(proxyURL)
+	}
+	var corpCA []byte
+	if len(ca) == 0 && strings.TrimSpace(proxy.CACertFile) != "" {
+		if data, caErr := readRepositoryFile(proxy.CACertFile); caErr == nil {
+			corpCA = data
+		}
+	}
+	effectiveCA := ca
+	if len(effectiveCA) == 0 {
+		effectiveCA = corpCA
+	}
+	if strings.EqualFold(parsed.Scheme, "https") && (len(effectiveCA) > 0 || insecure) {
 		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 		if insecure {
 			// #nosec G402 -- explicit, documented opt-in (--repo-insecure-tls); see docs/SECURITY.md
@@ -362,7 +431,7 @@ func downloadRepositoryFile(ctx context.Context, rawURL string, ca []byte, insec
 			if poolErr != nil {
 				pool = x509.NewCertPool()
 			}
-			if !pool.AppendCertsFromPEM(ca) {
+			if !pool.AppendCertsFromPEM(effectiveCA) {
 				return nil, fmt.Errorf("CA do repositório inválida")
 			}
 			tlsConfig.RootCAs = pool
@@ -373,6 +442,12 @@ func downloadRepositoryFile(ctx context.Context, rawURL string, ca []byte, insec
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
+	}
+	switch repo.AuthType {
+	case core.RepositoryAuthBasic:
+		request.SetBasicAuth(repo.AuthUsername, repo.AuthPassword)
+	case core.RepositoryAuthBearer:
+		request.Header.Set("Authorization", "Bearer "+repo.AuthToken)
 	}
 	response, err := client.Do(request)
 	if err != nil {
@@ -390,6 +465,39 @@ func downloadRepositoryFile(ctx context.Context, rawURL string, ca []byte, insec
 		return nil, fmt.Errorf("arquivo maior que %d bytes", repositoryMaterialLimit)
 	}
 	return data, nil
+}
+
+func selectProxyURL(scheme string, proxy core.ProxyConfig) *url.URL {
+	raw := strings.TrimSpace(proxy.HTTPProxy)
+	if strings.EqualFold(scheme, "https") && strings.TrimSpace(proxy.HTTPSProxy) != "" {
+		raw = strings.TrimSpace(proxy.HTTPSProxy)
+	}
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil
+	}
+	return u
+}
+
+func redactRepoSecrets(err error, repo core.PackageRepository) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	changed := false
+	for _, secret := range []string{repo.AuthPassword, repo.AuthToken} {
+		if secret != "" && strings.Contains(msg, secret) {
+			msg = strings.ReplaceAll(msg, secret, "[REDACTED]")
+			changed = true
+		}
+	}
+	if !changed {
+		return err
+	}
+	return fmt.Errorf("%s", msg)
 }
 
 type repositoryScript struct {

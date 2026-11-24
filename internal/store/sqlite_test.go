@@ -359,14 +359,72 @@ CREATE INDEX IF NOT EXISTS idx_pacotes_sessao ON pacotes(sessao_id);
 	}
 }
 
+func TestMigracaoFetchMethodPodman(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-fetch-method.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("abrir SQLite antigo: %v", err)
+	}
+	legacySessoes := `
+CREATE TABLE IF NOT EXISTS sessoes (
+    id              INTEGER PRIMARY KEY,
+    iniciada_em     DATETIME NOT NULL,
+    finalizada_em   DATETIME,
+    so_destino      TEXT NOT NULL,
+    versao_destino  TEXT NOT NULL,
+    arch_destino    TEXT NOT NULL,
+    metodo_fetch    TEXT NOT NULL CHECK (metodo_fetch IN ('docker','wsl')),
+    include_optional INTEGER NOT NULL DEFAULT 0,
+    host_destino    TEXT,
+    status          TEXT NOT NULL CHECK (status IN ('em_andamento','concluida','falhou','abortada'))
+);`
+	if _, err := raw.Exec(legacySessoes + pacotesTable + eventosTable); err != nil {
+		raw.Close()
+		t.Fatalf("criar schema legado: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO sessoes (
+		id, iniciada_em, so_destino, versao_destino, arch_destino,
+		metodo_fetch, include_optional, status
+	) VALUES (1, ?, 'ubuntu', '22.04', 'amd64', 'docker', 0, 'concluida')`,
+		formatTime(time.Now().UTC()),
+	); err != nil {
+		raw.Close()
+		t.Fatalf("inserir sessão legada: %v", err)
+	}
+	_ = raw.Close()
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open com migração podman: %v", err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+
+	existing, err := st.ObterSessao(ctx, 1)
+	if err != nil || existing.FetchMethod != "docker" {
+		t.Fatalf("sessão legada não preservada: %+v, err=%v", existing, err)
+	}
+	podman := newTestSession()
+	podman.FetchMethod = "podman"
+	if err := st.CreateSessao(ctx, podman); err != nil {
+		t.Fatalf("CreateSessao(podman) após migração: %v", err)
+	}
+}
+
 func TestValidacoes(t *testing.T) {
 	store, _ := openTestStore(t)
 	ctx := context.Background()
 
 	invalidMethod := newTestSession()
-	invalidMethod.FetchMethod = "podman"
+	invalidMethod.FetchMethod = "lxc"
 	if err := store.CreateSessao(ctx, invalidMethod); err == nil {
 		t.Fatal("esperava erro para método de fetch inválido")
+	}
+
+	podmanSession := newTestSession()
+	podmanSession.FetchMethod = "podman"
+	if err := store.CreateSessao(ctx, podmanSession); err != nil {
+		t.Fatalf("CreateSessao(podman): %v", err)
 	}
 
 	sessao := newTestSession()

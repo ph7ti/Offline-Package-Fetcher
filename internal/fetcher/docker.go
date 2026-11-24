@@ -113,11 +113,25 @@ func WithRepositories(repos []core.PackageRepository) Option {
 	return func(f *DockerFetcher) { f.repositories = repos }
 }
 
+func WithProxy(proxy core.ProxyConfig) Option {
+	return func(f *DockerFetcher) { f.proxy = proxy }
+}
+
+func WithContainerHost(host string) Option {
+	return func(f *DockerFetcher) { f.containerHost = strings.TrimSpace(host) }
+}
+
+func WithRuntimeKind(kind string) Option {
+	return func(f *DockerFetcher) { f.runtimeKind = strings.ToLower(strings.TrimSpace(kind)) }
+}
+
 type runConfig struct {
 	Image         string
 	Platform      string
 	ContainerName string
 	WorkDir       string
+	Env           map[string]string
+	Host          string
 }
 
 type containerRuntime interface {
@@ -150,6 +164,9 @@ type DockerFetcher struct {
 	logger          *slog.Logger
 	factory         containerFactory
 	repositories    []core.PackageRepository
+	proxy           core.ProxyConfig
+	containerHost   string
+	runtimeKind     string
 
 	sessionID     int64
 	prepared      bool
@@ -222,6 +239,24 @@ func (f *DockerFetcher) Prepare(ctx context.Context, targetOS, targetVersion, ar
 		return errors.New("resolver factory não configurada")
 	}
 
+	if err := f.proxy.Validate(false); err != nil {
+		return fmt.Errorf("configuração de proxy inválida: %w", err)
+	}
+	var corporateCA []byte
+	if caPath := strings.TrimSpace(f.proxy.CACertFile); caPath != "" {
+		corporateCA, err = readRepositoryFile(caPath)
+		if err != nil {
+			return fmt.Errorf("ler CA corporativa %q: %w", caPath, err)
+		}
+	}
+	resolvedHost := f.containerHost
+	if f.runtimeKind == "podman" || resolvedHost != "" || os.Getenv("DOCKER_HOST") != "" {
+		resolvedHost, err = ResolveContainerHost(f.runtimeKind, resolvedHost)
+		if err != nil {
+			return err
+		}
+	}
+
 	image := f.imageOverride
 	if image == "" {
 		image = targetOS + ":" + targetVersion
@@ -252,11 +287,19 @@ func (f *DockerFetcher) Prepare(ctx context.Context, targetOS, targetVersion, ar
 	}()
 
 	containerName := fmt.Sprintf("opf-%d-%d", f.sessionID, time.Now().UnixNano())
+	runtimeLabel := f.runtimeKind
+	if runtimeLabel == "" {
+		runtimeLabel = "docker"
+	}
+	sanitizedProxy := f.proxy.Sanitized()
 	f.logger.Info("preparando ambiente isolado",
 		"session_id", f.sessionID,
+		"runtime", runtimeLabel,
 		"image", image,
 		"platform", platform,
 		"workdir", f.workDir,
+		"http_proxy", sanitizedProxy.HTTPProxy,
+		"https_proxy", sanitizedProxy.HTTPSProxy,
 	)
 
 	runtime, err := f.factory(ctx, runConfig{
@@ -264,9 +307,11 @@ func (f *DockerFetcher) Prepare(ctx context.Context, targetOS, targetVersion, ar
 		Platform:      platform,
 		ContainerName: containerName,
 		WorkDir:       f.workDir,
+		Env:           f.proxy.EnvMap(),
+		Host:          resolvedHost,
 	})
 	if err != nil {
-		return fmt.Errorf("criar contêiner Docker: %w", err)
+		return fmt.Errorf("criar contêiner %s: %w", runtimeLabel, err)
 	}
 	f.runtime = runtime
 	f.containerID = runtime.ID()
@@ -280,6 +325,13 @@ func (f *DockerFetcher) Prepare(ctx context.Context, targetOS, targetVersion, ar
 		return fmt.Errorf("arquitetura do contêiner (%q) difere da solicitada (%q)", actualArch, arch)
 	}
 
+	if len(corporateCA) > 0 {
+		caScript := buildCorporateCAScript(kind, corporateCA)
+		if _, err := runtime.Exec(ctx, []string{"sh", "-c", caScript}); err != nil {
+			return fmt.Errorf("instalar CA corporativa no ambiente isolado: %w", err)
+		}
+	}
+
 	if kind == artifactRPM {
 		if err := f.prepareRPMTools(ctx); err != nil {
 			return err
@@ -288,7 +340,7 @@ func (f *DockerFetcher) Prepare(ctx context.Context, targetOS, targetVersion, ar
 
 	if len(f.repositories) > 0 {
 		runner := dockerRepositoryRunner{runtime: f.runtime}
-		if err := configureRepositories(ctx, runner, repositoryFamilyForKind(kind), f.sessionID, f.repositories, f.logger); err != nil {
+		if err := configureRepositoriesWithProxy(ctx, runner, repositoryFamilyForKind(kind), f.sessionID, f.repositories, f.proxy, f.logger); err != nil {
 			return err
 		}
 	}
@@ -814,10 +866,7 @@ func parseArtifactInventory(output, extension string) ([]artifactInfo, error) {
 }
 
 func stripQualifier(pkg string) string {
-	if idx := strings.IndexByte(pkg, ':'); idx >= 0 {
-		return pkg[:idx]
-	}
-	return pkg
+	return core.PackageBaseName(pkg)
 }
 
 func uniqueNonEmpty(values []string) []string {
@@ -904,24 +953,39 @@ func hashFile(path string) (string, error) {
 
 func runDockerContainer(ctx context.Context, cfg runConfig) (containerRuntime, error) {
 	startCommand := fmt.Sprintf("mkdir -p %s && exec sleep 2147483647", cfg.WorkDir)
-	ctr, err := container.Run(ctx,
+	opts := []container.ContainerCustomizer{
 		container.WithImage(cfg.Image),
 		container.WithImagePlatform(cfg.Platform),
 		container.WithName(cfg.ContainerName),
 		container.WithCmd("sh", "-c", startCommand),
 		container.WithWaitStrategy(wait.ForExec([]string{"sh", "-c", "test -d " + cfg.WorkDir})),
-	)
+	}
+	if len(cfg.Env) > 0 {
+		opts = append(opts, container.WithEnv(cfg.Env))
+	}
+	if cfg.Host != "" {
+		cli, err := client.New(ctx, client.WithDockerHost(cfg.Host))
+		if err != nil {
+			return nil, fmt.Errorf("conectar ao daemon de contêiner (%s): %w", cfg.Host, err)
+		}
+		opts = append(opts, container.WithClient(cli))
+	}
+	ctr, err := container.Run(ctx, opts...)
 	if err != nil {
-		cleanupContainerByName(cfg.ContainerName)
+		cleanupContainerByName(cfg.ContainerName, cfg.Host)
 		return nil, err
 	}
 	return &dockerRuntime{ctr: ctr, workDir: cfg.WorkDir}, nil
 }
 
-func cleanupContainerByName(name string) {
+func cleanupContainerByName(name, host string) {
 	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 	defer cancel()
-	cli, err := client.New(ctx)
+	var opts []client.ClientOption
+	if host != "" {
+		opts = append(opts, client.WithDockerHost(host))
+	}
+	cli, err := client.New(ctx, opts...)
 	if err != nil {
 		return
 	}

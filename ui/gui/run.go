@@ -119,33 +119,41 @@ func (u *UI) buildConfig(packages []string) (app.Config, error) {
 		versionReport = core.VersionReportNone
 	}
 
+	offlineBundlePath := ""
+	if u.offlineBundleCheck != nil && u.offlineBundleCheck.Checked {
+		offlineBundlePath = "auto"
+	}
+
 	cfg := app.Config{
-		StorePath:       strings.TrimSpace(u.dbEntry.Text),
-		OutputBaseDir:   strings.TrimSpace(u.outEntry.Text),
-		TempDir:         strings.TrimSpace(u.settings.TempDir),
-		TargetOS:        u.targetOS(),
-		TargetVersion:   strings.TrimSpace(u.versionEntry.Text),
-		TargetArch:      strings.TrimSpace(u.archEntry.Text),
-		Packages:        packages,
-		IncludeOptional: u.optionalCheck.Checked,
-		FetchMethod:     u.fetchMethod(),
-		Image:           strings.TrimSpace(u.imageEntry.Text),
-		WSLDistro:       strings.TrimSpace(u.wslEntry.Text),
-		SSH:             sshCfg,
-		RemoteDir:       strings.TrimSpace(u.remoteDir.Text),
-		Repositories:    repositories,
-		ForceReinstall:  u.forceCheck.Checked,
-		VersionReport:   versionReport,
-		StageTimeout:    u.settings.StageTimeout(),
-		Reporter:        u.reporter,
-		Install:         install,
-		UseSudo:         install && u.sudoCheck.Checked,
-		SudoPassword:    sudoPassword,
-		SyslogEnabled:   u.settings.SyslogEnabled,
-		SyslogHost:      u.settings.SyslogHost,
-		SyslogPort:      u.settings.SyslogPort,
-		SyslogProto:     u.settings.SyslogProto,
-		SyslogTag:       u.settings.SyslogTag,
+		StorePath:         strings.TrimSpace(u.dbEntry.Text),
+		OutputBaseDir:     strings.TrimSpace(u.outEntry.Text),
+		TempDir:           strings.TrimSpace(u.settings.TempDir),
+		TargetOS:          u.targetOS(),
+		TargetVersion:     strings.TrimSpace(u.versionEntry.Text),
+		TargetArch:        strings.TrimSpace(u.archEntry.Text),
+		Packages:          packages,
+		IncludeOptional:   u.optionalCheck.Checked,
+		FetchMethod:       u.fetchMethod(),
+		ContainerHost:     strings.TrimSpace(u.settings.ContainerHost),
+		Proxy:             u.settings.ProxyConfig(),
+		OfflineBundlePath: offlineBundlePath,
+		Image:             strings.TrimSpace(u.imageEntry.Text),
+		WSLDistro:         strings.TrimSpace(u.wslEntry.Text),
+		SSH:               sshCfg,
+		RemoteDir:         strings.TrimSpace(u.remoteDir.Text),
+		Repositories:      repositories,
+		ForceReinstall:    u.forceCheck.Checked,
+		VersionReport:     versionReport,
+		StageTimeout:      u.settings.StageTimeout(),
+		Reporter:          u.reporter,
+		Install:           install,
+		UseSudo:           install && u.sudoCheck.Checked,
+		SudoPassword:      sudoPassword,
+		SyslogEnabled:     u.settings.SyslogEnabled,
+		SyslogHost:        u.settings.SyslogHost,
+		SyslogPort:        u.settings.SyslogPort,
+		SyslogProto:       u.settings.SyslogProto,
+		SyslogTag:         u.settings.SyslogTag,
 	}
 	if install {
 		cfg.ConfirmInstall = u.confirmInstall
@@ -165,11 +173,18 @@ func (u *UI) buildSSHConfig() (core.SSHConfig, error) {
 		}
 		port = parsed
 	}
+	passphrase := ""
+	if u.sshKeyPassphrase != nil {
+		passphrase = u.sshKeyPassphrase.Text
+	}
+	useAgent := u.sshUseAgent != nil && u.sshUseAgent.Checked
 	cfg := core.SSHConfig{
 		Host:                strings.TrimSpace(u.sshHost.Text),
 		Port:                port,
 		User:                strings.TrimSpace(u.sshUser.Text),
 		KeyPath:             strings.TrimSpace(u.sshKey.Text),
+		KeyPassphrase:       passphrase,
+		UseAgent:            useAgent,
 		Password:            u.sshPassword.Text,
 		KnownHosts:          strings.TrimSpace(u.knownHosts.Text),
 		InsecureSkipHostKey: u.skipHostKey.Checked,
@@ -177,7 +192,7 @@ func (u *UI) buildSSHConfig() (core.SSHConfig, error) {
 	if cfg.Host == "" || cfg.User == "" {
 		return cfg, errors.New(i18n.T("host e usuário SSH são obrigatórios"))
 	}
-	if cfg.KeyPath == "" && cfg.Password == "" {
+	if cfg.KeyPath == "" && cfg.Password == "" && !cfg.UseAgent {
 		return cfg, errors.New(i18n.T("informe chave SSH ou senha da conta"))
 	}
 	jumps, err := u.buildJumpConfigs(cfg)

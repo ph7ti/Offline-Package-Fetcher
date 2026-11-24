@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"opf/internal/config"
 	"opf/internal/core"
 	"opf/internal/i18n"
 )
@@ -479,5 +480,58 @@ func TestResumeFlagRejectsNonPositive(t *testing.T) {
 	err := run([]string{"--resume", "0", "--pkg", "vim", "--target", "ubuntu:22.04", "--arch", "amd64"})
 	if err == nil || !strings.Contains(err.Error(), "--resume") {
 		t.Fatalf("esperava erro de --resume inválido, obteve %v", err)
+	}
+}
+
+func TestProfileListAndDeleteFlags(t *testing.T) {
+	profilesPath := filepath.Join(t.TempDir(), "profiles.json")
+	if err := config.UpsertProfile(profilesPath, config.Profile{
+		Name: "prod-ub22", TargetOS: "ubuntu", TargetVersion: "22.04", TargetArch: "amd64",
+	}); err != nil {
+		t.Fatalf("UpsertProfile: %v", err)
+	}
+	if err := run([]string{"--profiles-file", profilesPath, "--list-profiles"}); err != nil {
+		t.Fatalf("--list-profiles: %v", err)
+	}
+	if err := run([]string{"--profiles-file", profilesPath, "--delete-profile", "prod-ub22"}); err != nil {
+		t.Fatalf("--delete-profile: %v", err)
+	}
+	if _, err := config.GetProfile(profilesPath, "prod-ub22"); err == nil {
+		t.Fatal("perfil deveria ter sido removido")
+	}
+}
+
+func TestBuildProxyConfigInherit(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://proxy.corp:8080")
+	t.Setenv("HTTPS_PROXY", "http://secure.corp:8443")
+	t.Setenv("NO_PROXY", "localhost,.corp.local")
+	got := buildProxyConfig("", "", "", "/tmp/ca.pem", true)
+	if got.HTTPProxy != "http://proxy.corp:8080" || got.HTTPSProxy != "http://secure.corp:8443" || got.NoProxy != "localhost,.corp.local" || got.CACertFile != "/tmp/ca.pem" {
+		t.Fatalf("proxy herdado incorreto: %+v", got)
+	}
+	explicit := buildProxyConfig("http://override:3128", "", "", "", true)
+	if explicit.HTTPProxy != "http://override:3128" {
+		t.Fatalf("flag explícita deveria vencer env: %+v", explicit)
+	}
+}
+
+func TestApplyRepoAuthEnvAndMergeJumpPassphrases(t *testing.T) {
+	repos := []core.PackageRepository{{Name: "Corp Repo", URL: "https://repo.corp/apt"}}
+	updated, err := applyRepoAuthEnv(repos, `{"corp-repo":{"type":"bearer","token":"tok-123"}}`)
+	if err != nil {
+		t.Fatalf("applyRepoAuthEnv: %v", err)
+	}
+	if updated[0].AuthType != core.RepositoryAuthBearer || updated[0].AuthToken != "tok-123" {
+		t.Fatalf("auth não aplicado: %+v", updated[0])
+	}
+	if _, err := applyRepoAuthEnv(repos, "not-json"); err == nil {
+		t.Fatal("esperava erro para OPF_REPO_AUTH inválido")
+	}
+	if _, err := mergeJumpPassphrases([]string{"a"}, []string{"b"}); err == nil {
+		t.Fatal("esperava erro ao informar flag e env para passphrase")
+	}
+	got, err := mergeJumpPassphrases(nil, []string{"p1"})
+	if err != nil || len(got) != 1 || got[0] != "p1" {
+		t.Fatalf("mergeJumpPassphrases = %v, %v", got, err)
 	}
 }

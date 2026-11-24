@@ -97,7 +97,7 @@ func (s *Sessao) Validate() error {
 		return errors.New(i18n.T("arquitetura de destino não informada"))
 	}
 	switch s.FetchMethod {
-	case "docker", "wsl":
+	case "docker", "podman", "wsl":
 	default:
 		return fmt.Errorf(i18n.T("método de fetch inválido: %q"), s.FetchMethod)
 	}

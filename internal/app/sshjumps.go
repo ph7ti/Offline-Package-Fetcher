@@ -14,6 +14,7 @@ const (
 	SSHJumpAuthPassword    = "password"
 	SSHJumpAuthKey         = "key"
 	SSHJumpAuthKeyPassword = "key+password"
+	SSHJumpAuthAgent       = "agent"
 )
 
 // SSHJumpMetadata is the non-secret description of a jump host persisted in
@@ -28,15 +29,16 @@ type SSHJumpMetadata struct {
 }
 
 // SSHJumpInput carries the editable values of one jump host, including its
-// password. It is only kept in memory.
+// password and optional key passphrase. It is only kept in memory.
 type SSHJumpInput struct {
-	Host       string
-	Port       string
-	User       string
-	AuthMode   string
-	Password   string
-	KeyPath    string
-	KnownHosts string
+	Host          string
+	Port          string
+	User          string
+	AuthMode      string
+	Password      string
+	KeyPath       string
+	KeyPassphrase string
+	KnownHosts    string
 }
 
 // NormalizeSSHJumpAuthMode accepts the canonical English modes and the
@@ -49,8 +51,10 @@ func NormalizeSSHJumpAuthMode(value string) (string, error) {
 		return SSHJumpAuthKey, nil
 	case SSHJumpAuthKeyPassword, "chave+senha", "chave + senha", "chave e senha":
 		return SSHJumpAuthKeyPassword, nil
+	case SSHJumpAuthAgent, "ssh-agent", "agente":
+		return SSHJumpAuthAgent, nil
 	default:
-		return "", fmt.Errorf("modo de autenticação inválido: %q (use password, key ou key+password)", value)
+		return "", fmt.Errorf("modo de autenticação inválido: %q (use password, key, key+password ou agent)", value)
 	}
 }
 
@@ -107,12 +111,20 @@ func BuildSSHJumpHosts(base core.SSHConfig, inputs []SSHJumpInput) ([]core.SSHCo
 		}
 		mode, _ := NormalizeSSHJumpAuthMode(in.AuthMode)
 		keyPath := strings.TrimSpace(in.KeyPath)
+		keyPassphrase := in.KeyPassphrase
 		password := in.Password
+		useAgent := false
 		switch mode {
 		case SSHJumpAuthPassword:
 			keyPath = ""
+			keyPassphrase = ""
 		case SSHJumpAuthKey:
 			password = ""
+		case SSHJumpAuthAgent:
+			keyPath = ""
+			keyPassphrase = ""
+			password = ""
+			useAgent = true
 		}
 		knownHosts := strings.TrimSpace(in.KnownHosts)
 		if knownHosts == "" {
@@ -123,6 +135,8 @@ func BuildSSHJumpHosts(base core.SSHConfig, inputs []SSHJumpInput) ([]core.SSHCo
 			Port:                baseSSHJumpPort(in.Port),
 			User:                strings.TrimSpace(in.User),
 			KeyPath:             keyPath,
+			KeyPassphrase:       keyPassphrase,
+			UseAgent:            useAgent,
 			Password:            password,
 			KnownHosts:          knownHosts,
 			InsecureSkipHostKey: base.InsecureSkipHostKey,
@@ -206,6 +220,8 @@ func SSHJumpFingerprint(inputs []SSHJumpInput) string {
 
 func sshJumpAuthModeFromConfig(cfg core.SSHConfig) string {
 	switch {
+	case cfg.UseAgent && cfg.KeyPath == "" && cfg.Password == "":
+		return SSHJumpAuthAgent
 	case cfg.KeyPath != "" && cfg.Password != "":
 		return SSHJumpAuthKeyPassword
 	case cfg.KeyPath != "":

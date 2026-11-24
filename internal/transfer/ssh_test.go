@@ -251,3 +251,39 @@ func TestExpandHome(t *testing.T) {
 		t.Fatalf("expandHome absoluto = %q, %v", got, err)
 	}
 }
+
+func TestSSHAuthEncryptedPrivateKeyWithPassphrase(t *testing.T) {
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("gerar chave: %v", err)
+	}
+	const passphrase = "dummy-key-passphrase"
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(privateKey, "", []byte(passphrase))
+	if err != nil {
+		t.Fatalf("serializar chave cifrada: %v", err)
+	}
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519_enc")
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatalf("escrever chave: %v", err)
+	}
+
+	// Missing passphrase gives a clear hint.
+	if _, _, err := sshAuthMethods(SSHConfig{Host: "h", User: "u", KeyPath: keyPath}); err == nil || !strings.Contains(err.Error(), "passphrase") {
+		t.Fatalf("esperava erro orientando passphrase, obteve %v", err)
+	}
+	// Wrong passphrase fails.
+	if _, _, err := sshAuthMethods(SSHConfig{Host: "h", User: "u", KeyPath: keyPath, KeyPassphrase: "wrong"}); err == nil {
+		t.Fatal("esperava erro para passphrase incorreta")
+	}
+	// Valid passphrase succeeds.
+	methods, _, err := sshAuthMethods(SSHConfig{Host: "h", User: "u", KeyPath: keyPath, KeyPassphrase: passphrase})
+	if err != nil || len(methods) != 1 {
+		t.Fatalf("sshAuthMethods com passphrase = %d, %v", len(methods), err)
+	}
+}
+
+func TestValidateSSHConfigAllowsUseAgent(t *testing.T) {
+	if err := validateSSHConfig(SSHConfig{Host: "host", Port: 22, User: "opf", UseAgent: true}, "destino"); err != nil {
+		t.Fatalf("UseAgent deveria satisfazer validação de auth: %v", err)
+	}
+}

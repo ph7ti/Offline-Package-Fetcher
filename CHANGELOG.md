@@ -4,6 +4,23 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-23
+
+Air-gapped offline bundles, corporate SSH ergonomics, proxy & custom CA support, Podman / rootless Docker, package version pinning, ephemeral private repository authentication and saved session profiles.
+
+### Added
+
+- **Air-Gapped Offline Bundle (`--offline-bundle`)**: packages verified session artifacts, `SHA256SUMS`, `metadata.json` and an executable `install-offline.sh` into a self-contained `.tar.gz`. The script runs P3 `sha256sum -c SHA256SUMS`, supports `--verify-only` and invokes the exact offline install command for APT, YUM/DNF or APK. Available in CLI, GUI and TUI.
+- **Corporate SSH Ergonomics**:
+  - Passphrase-protected private keys (`ssh.ParsePrivateKeyWithPassphrase`, `--ssh-key-passphrase` / `OPF_SSH_KEY_PASSPHRASE` and per-jump `--ssh-jump-passphrase` / `OPF_SSH_JUMP_PASSPHRASES`), kept strictly in memory.
+  - Native `ssh-agent` authentication (`--ssh-agent`, GUI/TUI toggles, and `agent` jump-host auth mode) supporting both Unix `SSH_AUTH_SOCK` and Windows OpenSSH named pipe (`\\.\pipe\openssh-ssh-agent`).
+  - `~/.ssh/config` import (`--ssh-config <alias>`, `--ssh-config-file`, and GUI import action) resolving `HostName`, `User`, `Port`, `IdentityFile`, `UserKnownHostsFile`, `Include` and recursive `ProxyJump` chains with cycle protection.
+- **Corporate Proxy & Custom CA in Isolated Containers**: `--http-proxy`, `--https-proxy`, `--no-proxy`, `--inherit-proxy`, `--ca-cert` (and Global Settings in GUI/TUI) inject proxy environment variables and install custom PEM CAs into the container OS trust store (Debian/Ubuntu, RHEL/CentOS/Rocky/Alma/Fedora and Alpine) as well as host `KeyURL` downloads. Proxy URLs with embedded credentials are rejected for persistence and redacted from logs/session metadata.
+- **Podman & Rootless Docker Support**: `--fetch-method podman`, `--container-host`, and automatic rootless Docker / Podman socket discovery (`CONTAINER_HOST`, `DOCKER_HOST`, `XDG_RUNTIME_DIR/docker.sock`, `XDG_RUNTIME_DIR/podman/podman.sock`, macOS Podman machine and Windows named pipe). Includes automatic SQLite `sessoes.metodo_fetch` schema migration preserving existing sessions.
+- **Package Version Pinning**: accepts explicit version specs (`pkg=version` and `pkg:arch=version` for APT, `pkg=version` for APK, `pkg=version` / `pkg-version` for RPM) with strict injection validation across resolvers, fetchers, remote inspector, pre-check and *Package diff*.
+- **Ephemeral Private Repository Authentication**: supports `Basic Auth` and `Bearer Token` per additional repository (CLI `--repo-auth-type`, `--repo-auth-user`, `OPF_REPO_PASSWORD`, `OPF_REPO_TOKEN`, `OPF_REPO_AUTH`, plus GUI and TUI editors). Credentials are never serialized (`json:"-"`), written only inside the ephemeral container with `0600` permissions (APT `auth.conf.d` / `ExtraHeader::`, RPM `username`/`password` & `set_http_headers`, APK Basic Auth; Bearer rejected on APK), used for `KeyURL` downloads and redacted from error messages.
+- **Saved Session Profiles (zero secrets)**: `profiles.json` (`0600`) CRUD with CLI flags (`--profile`, `--save-profile`, `--list-profiles`, `--delete-profile`, `--profiles-file`) and GUI profile manager. All passwords, passphrases and private repository credentials are excluded and stripped before writing to disk.
+
 ## [0.3.1] - 2026-11-23
 
 Offline installation hardening, performance improvements and CLI unification.

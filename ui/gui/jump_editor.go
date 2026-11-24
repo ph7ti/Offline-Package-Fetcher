@@ -19,35 +19,38 @@ import (
 
 // jumpAuthLabels holds the Portuguese source labels used as internal values.
 // jumpAuthOptions renders the translated labels shown to the user.
-var jumpAuthLabels = []string{"Senha", "Chave", "Chave + senha"}
+var jumpAuthLabels = []string{"Senha", "Chave", "Chave + senha", "ssh-agent"}
 
 func jumpAuthOptions() []string {
 	return []string{
 		i18n.T("Senha"),
 		i18n.T("Chave"),
 		i18n.T("Chave + senha"),
+		"ssh-agent",
 	}
 }
 
 type jumpRow struct {
-	host       *widget.Entry
-	port       *widget.Entry
-	user       *widget.Entry
-	auth       *widget.Select
-	password   *widget.Entry
-	keyPath    *widget.Entry
-	knownHosts *widget.Entry
+	host          *widget.Entry
+	port          *widget.Entry
+	user          *widget.Entry
+	auth          *widget.Select
+	password      *widget.Entry
+	keyPath       *widget.Entry
+	keyPassphrase *widget.Entry
+	knownHosts    *widget.Entry
 }
 
 func newJumpRow() *jumpRow {
 	row := &jumpRow{
-		host:       widget.NewEntry(),
-		port:       widget.NewEntry(),
-		user:       widget.NewEntry(),
-		auth:       widget.NewSelect(jumpAuthOptions(), nil),
-		password:   widget.NewPasswordEntry(),
-		keyPath:    widget.NewEntry(),
-		knownHosts: widget.NewEntry(),
+		host:          widget.NewEntry(),
+		port:          widget.NewEntry(),
+		user:          widget.NewEntry(),
+		auth:          widget.NewSelect(jumpAuthOptions(), nil),
+		password:      widget.NewPasswordEntry(),
+		keyPath:       widget.NewEntry(),
+		keyPassphrase: widget.NewPasswordEntry(),
+		knownHosts:    widget.NewEntry(),
 	}
 	row.auth.PlaceHolder = i18n.T("Selecione o tipo de autenticação")
 	row.host.SetPlaceHolder(i18n.T("host ou IP da ponte"))
@@ -55,6 +58,7 @@ func newJumpRow() *jumpRow {
 	row.user.SetPlaceHolder(i18n.T("usuário da ponte"))
 	row.password.SetPlaceHolder(i18n.T("senha da ponte (somente em memória)"))
 	row.keyPath.SetPlaceHolder("~/.ssh/id_ed25519")
+	row.keyPassphrase.SetPlaceHolder(i18n.T("passphrase da chave (somente em memória)"))
 	row.knownHosts.SetPlaceHolder(i18n.T("vazio herda o known_hosts do destino"))
 	row.auth.OnChanged = func(string) { row.syncAuth() }
 	row.auth.SetSelected(jumpAuthLabel(opfapp.SSHJumpAuthPassword))
@@ -81,27 +85,47 @@ func (r *jumpRow) refreshAuthOptions() {
 
 func (r *jumpRow) syncAuth() {
 	switch r.authMode() {
+	case opfapp.SSHJumpAuthAgent:
+		r.password.Disable()
+		r.keyPath.Disable()
+		if r.keyPassphrase != nil {
+			r.keyPassphrase.Disable()
+		}
 	case opfapp.SSHJumpAuthKey:
 		r.password.Disable()
 		r.keyPath.Enable()
+		if r.keyPassphrase != nil {
+			r.keyPassphrase.Enable()
+		}
 	case opfapp.SSHJumpAuthKeyPassword:
 		r.password.Enable()
 		r.keyPath.Enable()
+		if r.keyPassphrase != nil {
+			r.keyPassphrase.Enable()
+		}
 	default:
 		r.password.Enable()
 		r.keyPath.Disable()
+		if r.keyPassphrase != nil {
+			r.keyPassphrase.Disable()
+		}
 	}
 }
 
 func (r *jumpRow) input() opfapp.SSHJumpInput {
+	passphrase := ""
+	if r.keyPassphrase != nil {
+		passphrase = r.keyPassphrase.Text
+	}
 	return opfapp.SSHJumpInput{
-		Host:       r.host.Text,
-		Port:       r.port.Text,
-		User:       r.user.Text,
-		AuthMode:   r.authMode(),
-		Password:   r.password.Text,
-		KeyPath:    r.keyPath.Text,
-		KnownHosts: r.knownHosts.Text,
+		Host:          r.host.Text,
+		Port:          r.port.Text,
+		User:          r.user.Text,
+		AuthMode:      r.authMode(),
+		Password:      r.password.Text,
+		KeyPath:       r.keyPath.Text,
+		KeyPassphrase: passphrase,
+		KnownHosts:    r.knownHosts.Text,
 	}
 }
 
@@ -129,11 +153,16 @@ func (r *jumpRow) setMetadata(meta opfapp.SSHJumpMetadata) {
 	r.keyPath.SetText(meta.KeyPath)
 	r.knownHosts.SetText(meta.KnownHosts)
 	r.password.SetText("")
+	if r.keyPassphrase != nil {
+		r.keyPassphrase.SetText("")
+	}
 	r.syncAuth()
 }
 
 func jumpAuthLabel(mode string) string {
 	switch mode {
+	case opfapp.SSHJumpAuthAgent:
+		return "ssh-agent"
 	case opfapp.SSHJumpAuthKey:
 		return i18n.T("Chave")
 	case opfapp.SSHJumpAuthKeyPassword:
@@ -147,6 +176,8 @@ func jumpAuthLabel(mode string) string {
 
 func jumpAuthMode(label string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(label)) {
+	case "agent", "ssh-agent":
+		return opfapp.SSHJumpAuthAgent, nil
 	case "senha", "password", "contraseña", strings.ToLower(i18n.T("Senha")):
 		return opfapp.SSHJumpAuthPassword, nil
 	case "chave", "key", "clave", strings.ToLower(i18n.T("Chave")):
@@ -212,7 +243,7 @@ func (u *UI) setJumpMetadata(metas []opfapp.SSHJumpMetadata) bool {
 		row := newJumpRow()
 		row.setMetadata(meta)
 		u.jumpRows = append(u.jumpRows, row)
-		if meta.AuthMode != opfapp.SSHJumpAuthKey {
+		if meta.AuthMode != opfapp.SSHJumpAuthKey && meta.AuthMode != opfapp.SSHJumpAuthAgent {
 			needsPassword = true
 		}
 	}
@@ -263,6 +294,7 @@ func (u *UI) jumpRowCard(row *jumpRow, index, total int) fyne.CanvasObject {
 		widget.NewFormItem(i18n.T("Autenticação"), row.auth),
 		widget.NewFormItem(i18n.T("Senha"), row.password),
 		widget.NewFormItem(i18n.T("Chave privada"), row.keyPath),
+		widget.NewFormItem(i18n.T("Passphrase da chave"), row.keyPassphrase),
 		widget.NewFormItem("Known hosts", row.knownHosts),
 	)
 	note := u.muted(i18n.T("Credenciais da ponte não são herdadas do destino nem persistidas."), theme.SizeNameCaptionText)

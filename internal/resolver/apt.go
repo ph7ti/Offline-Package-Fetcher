@@ -86,7 +86,21 @@ func (r *AptResolver) ListDependencies(ctx context.Context, pkg string, includeO
 	if err != nil {
 		return nil, fmt.Errorf("interpretar saída do apt-cache para %q: %w", pkg, err)
 	}
-	if !contains(deps, pkg) {
+	baseName := core.PackageBaseName(pkg)
+	if core.PackagePinnedVersion(pkg) != "" {
+		// Replace unpinned root name with the pinned 'pkg=version' spec so
+		// apt-get download fetches the exact requested version.
+		filtered := make([]string, 0, len(deps)+1)
+		for _, dep := range deps {
+			if core.PackageBaseName(dep) == baseName {
+				continue
+			}
+			filtered = append(filtered, dep)
+		}
+		filtered = append(filtered, pkg)
+		sort.Strings(filtered)
+		deps = filtered
+	} else if !contains(deps, pkg) {
 		deps = append(deps, pkg)
 	}
 	return deps, nil
@@ -101,9 +115,20 @@ func (r *AptResolver) ListCandidates(ctx context.Context, pkgs []string, _ bool)
 	if len(pkgs) == 0 {
 		return nil, errors.New("nenhum pacote para resolver versões APT")
 	}
+	pinned := make(map[string]string)
+	queryNames := make([]string, 0, len(pkgs))
+	seen := make(map[string]struct{}, len(pkgs))
 	for _, pkg := range pkgs {
 		if err := r.validatePackage(pkg); err != nil {
 			return nil, err
+		}
+		base := core.PackageBaseName(pkg)
+		if ver := core.PackagePinnedVersion(pkg); ver != "" {
+			pinned[base] = ver
+		}
+		if _, ok := seen[base]; !ok {
+			seen[base] = struct{}{}
+			queryNames = append(queryNames, base)
 		}
 	}
 	if err := r.validate(); err != nil {
@@ -114,19 +139,22 @@ func (r *AptResolver) ListCandidates(ctx context.Context, pkgs []string, _ bool)
 	}
 	cmd := append([]string{"apt-cache"}, r.configArgs()...)
 	cmd = append(cmd, "policy")
-	cmd = append(cmd, pkgs...)
+	cmd = append(cmd, queryNames...)
 	stdout, err := r.exec.Exec(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("resolver versões candidatas APT: %w", err)
 	}
 	versions := parseAptPolicy(stdout)
-	candidates := make([]core.CandidatePackage, 0, len(pkgs))
-	for _, pkg := range pkgs {
-		version := versions[pkg]
+	candidates := make([]core.CandidatePackage, 0, len(queryNames))
+	for _, base := range queryNames {
+		version := pinned[base]
+		if version == "" {
+			version = versions[base]
+		}
 		if version == "" {
 			continue
 		}
-		candidates = append(candidates, core.CandidatePackage{Name: pkg, Version: version})
+		candidates = append(candidates, core.CandidatePackage{Name: base, Version: version})
 	}
 	if len(candidates) == 0 {
 		return nil, errors.New("nenhuma versão candidata APT encontrada")
@@ -199,7 +227,7 @@ func (r *AptResolver) validate() error {
 }
 
 func (r *AptResolver) validatePackage(pkg string) error {
-	if !packageNamePattern.MatchString(pkg) {
+	if _, err := core.ParsePackageSpec(core.RepositoryFamilyAPT, pkg); err != nil {
 		return fmt.Errorf("nome de pacote APT inválido: %q", pkg)
 	}
 	return nil

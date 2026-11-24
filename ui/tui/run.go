@@ -265,33 +265,40 @@ func (m *Model) buildConfig() (app.Config, error) {
 	if install && m.sudo && sudoPassword == "" {
 		return app.Config{}, errors.New(i18n.T("sudo exige a senha da conta"))
 	}
+	offlineBundlePath := ""
+	if m.offlineBundle {
+		offlineBundlePath = "auto"
+	}
 	cfg := app.Config{
-		StorePath:       strings.TrimSpace(m.dbInput.Value()),
-		OutputBaseDir:   strings.TrimSpace(m.outInput.Value()),
-		TempDir:         strings.TrimSpace(m.settings.TempDir),
-		TargetOS:        strings.ToLower(strings.TrimSpace(m.targetInput.Value())),
-		TargetVersion:   strings.TrimSpace(m.versionInput.Value()),
-		TargetArch:      strings.TrimSpace(m.archInput.Value()),
-		Packages:        packages,
-		IncludeOptional: m.optional,
-		FetchMethod:     strings.ToLower(strings.TrimSpace(m.methodInput.Value())),
-		Image:           strings.TrimSpace(m.imageInput.Value()),
-		WSLDistro:       strings.TrimSpace(m.wslInput.Value()),
-		SSH:             sshCfg,
-		RemoteDir:       strings.TrimSpace(m.remoteDir.Value()),
-		Repositories:    repositories,
-		ForceReinstall:  m.force,
-		VersionReport:   m.effectiveVersionReport(),
-		StageTimeout:    m.settings.StageTimeout(),
-		Reporter:        m.reporter,
-		Install:         install,
-		UseSudo:         install && m.sudo,
-		SudoPassword:    sudoPassword,
-		SyslogEnabled:   m.settings.SyslogEnabled,
-		SyslogHost:      m.settings.SyslogHost,
-		SyslogPort:      m.settings.SyslogPort,
-		SyslogProto:     m.settings.SyslogProto,
-		SyslogTag:       m.settings.SyslogTag,
+		StorePath:         strings.TrimSpace(m.dbInput.Value()),
+		OutputBaseDir:     strings.TrimSpace(m.outInput.Value()),
+		TempDir:           strings.TrimSpace(m.settings.TempDir),
+		TargetOS:          strings.ToLower(strings.TrimSpace(m.targetInput.Value())),
+		TargetVersion:     strings.TrimSpace(m.versionInput.Value()),
+		TargetArch:        strings.TrimSpace(m.archInput.Value()),
+		Packages:          packages,
+		IncludeOptional:   m.optional,
+		FetchMethod:       strings.ToLower(strings.TrimSpace(m.methodInput.Value())),
+		ContainerHost:     strings.TrimSpace(m.settings.ContainerHost),
+		Proxy:             m.settings.ProxyConfig(),
+		OfflineBundlePath: offlineBundlePath,
+		Image:             strings.TrimSpace(m.imageInput.Value()),
+		WSLDistro:         strings.TrimSpace(m.wslInput.Value()),
+		SSH:               sshCfg,
+		RemoteDir:         strings.TrimSpace(m.remoteDir.Value()),
+		Repositories:      repositories,
+		ForceReinstall:    m.force,
+		VersionReport:     m.effectiveVersionReport(),
+		StageTimeout:      m.settings.StageTimeout(),
+		Reporter:          m.reporter,
+		Install:           install,
+		UseSudo:           install && m.sudo,
+		SudoPassword:      sudoPassword,
+		SyslogEnabled:     m.settings.SyslogEnabled,
+		SyslogHost:        m.settings.SyslogHost,
+		SyslogPort:        m.settings.SyslogPort,
+		SyslogProto:       m.settings.SyslogProto,
+		SyslogTag:         m.settings.SyslogTag,
 	}
 	if install {
 		cfg.ConfirmInstall = m.confirmInstall
@@ -443,6 +450,21 @@ func (m *Model) saveSettings() {
 	m.settings.TempDir = strings.TrimSpace(m.settingsTemp.Value())
 	m.settings.StageTimeoutSecs = timeout
 	m.settings.Language = language
+	if m.settingsContainerHost != nil {
+		m.settings.ContainerHost = strings.TrimSpace(m.settingsContainerHost.Value())
+	}
+	if m.settingsHTTPProxy != nil {
+		m.settings.HTTPProxy = strings.TrimSpace(m.settingsHTTPProxy.Value())
+	}
+	if m.settingsHTTPSProxy != nil {
+		m.settings.HTTPSProxy = strings.TrimSpace(m.settingsHTTPSProxy.Value())
+	}
+	if m.settingsNoProxy != nil {
+		m.settings.NoProxy = strings.TrimSpace(m.settingsNoProxy.Value())
+	}
+	if m.settingsCACert != nil {
+		m.settings.CACertFile = strings.TrimSpace(m.settingsCACert.Value())
+	}
 	m.settings.SyslogEnabled = m.syslogEnabled
 	m.settings.SyslogHost = strings.TrimSpace(m.syslogHost.Value())
 	m.settings.SyslogPort = port
@@ -706,7 +728,21 @@ func (m *Model) buildSSHConfig() (core.SSHConfig, error) {
 		}
 		port = parsed
 	}
-	cfg := core.SSHConfig{Host: strings.TrimSpace(m.sshHost.Value()), Port: port, User: strings.TrimSpace(m.sshUser.Value()), KeyPath: strings.TrimSpace(m.sshKey.Value()), Password: m.sshPassword.Value(), KnownHosts: strings.TrimSpace(m.knownHosts.Value()), InsecureSkipHostKey: m.skipHostKey}
+	passphrase := ""
+	if m.sshKeyPassphrase != nil {
+		passphrase = m.sshKeyPassphrase.Value()
+	}
+	cfg := core.SSHConfig{
+		Host:                strings.TrimSpace(m.sshHost.Value()),
+		Port:                port,
+		User:                strings.TrimSpace(m.sshUser.Value()),
+		KeyPath:             strings.TrimSpace(m.sshKey.Value()),
+		KeyPassphrase:       passphrase,
+		UseAgent:            m.sshUseAgent,
+		Password:            m.sshPassword.Value(),
+		KnownHosts:          strings.TrimSpace(m.knownHosts.Value()),
+		InsecureSkipHostKey: m.skipHostKey,
+	}
 	if cfg.Host == "" || cfg.User == "" {
 		return cfg, errors.New(i18n.T("host e usuário SSH são obrigatórios"))
 	}

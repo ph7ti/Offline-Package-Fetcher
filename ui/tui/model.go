@@ -129,9 +129,11 @@ type Model struct {
 
 	optional      bool
 	force         bool
+	offlineBundle bool
 	versionReport string
 	syslogEnabled bool
 	skipHostKey   bool
+	sshUseAgent   bool
 	detectedText  string
 	detectedHost  string
 	detectedUser  string
@@ -151,34 +153,39 @@ type Model struct {
 	outInput     *textinput.Model
 	dbInput      *textinput.Model
 
-	sshHost     *textinput.Model
-	sshPort     *textinput.Model
-	sshUser     *textinput.Model
-	sshKey      *textinput.Model
-	sshPassword *textinput.Model
-	knownHosts  *textinput.Model
-	jumpDrafts  []jumpDraft
-	jumpIdx     int
-	jumpEditIdx int
-	remoteDir   *textinput.Model
+	sshHost          *textinput.Model
+	sshPort          *textinput.Model
+	sshUser          *textinput.Model
+	sshKey           *textinput.Model
+	sshKeyPassphrase *textinput.Model
+	sshPassword      *textinput.Model
+	knownHosts       *textinput.Model
+	jumpDrafts       []jumpDraft
+	jumpIdx          int
+	jumpEditIdx      int
+	remoteDir        *textinput.Model
 
-	jumpHostEdit       *textinput.Model
-	jumpPortEdit       *textinput.Model
-	jumpUserEdit       *textinput.Model
-	jumpAuthEdit       string
-	jumpKeyEdit        *textinput.Model
-	jumpPasswordEdit   *textinput.Model
-	jumpKnownHostsEdit *textinput.Model
+	jumpHostEdit          *textinput.Model
+	jumpPortEdit          *textinput.Model
+	jumpUserEdit          *textinput.Model
+	jumpAuthEdit          string
+	jumpKeyEdit           *textinput.Model
+	jumpKeyPassphraseEdit *textinput.Model
+	jumpPasswordEdit      *textinput.Model
+	jumpKnownHostsEdit    *textinput.Model
 
 	repoDrafts            []repoDraft
 	repoIdx               int
 	repoEditIdx           int
 	repoFamilyEdit        string
 	repoKeySourceEdit     string
+	repoAuthTypeEdit      string
 	repoNameEdit          *textinput.Model
 	repoURLEdit           *textinput.Model
 	repoKeyValueEdit      *textinput.Model
 	repoCAEdit            *textinput.Model
+	repoAuthUserEdit      *textinput.Model
+	repoAuthSecretEdit    *textinput.Model
 	repoAPTSuiteEdit      *textinput.Model
 	repoAPTComponentsEdit *textinput.Model
 	repoAPTFlatEdit       bool
@@ -187,13 +194,18 @@ type Model struct {
 	pkgInput     *textinput.Model
 	sudoPassword *textinput.Model
 
-	settingsTemp     *textinput.Model
-	settingsTimeout  *textinput.Model
-	settingsLanguage *textinput.Model
-	syslogHost       *textinput.Model
-	syslogPort       *textinput.Model
-	syslogProto      *textinput.Model
-	syslogTag        *textinput.Model
+	settingsTemp          *textinput.Model
+	settingsTimeout       *textinput.Model
+	settingsLanguage      *textinput.Model
+	settingsContainerHost *textinput.Model
+	settingsHTTPProxy     *textinput.Model
+	settingsHTTPSProxy    *textinput.Model
+	settingsNoProxy       *textinput.Model
+	settingsCACert        *textinput.Model
+	syslogHost            *textinput.Model
+	syslogPort            *textinput.Model
+	syslogProto           *textinput.Model
+	syslogTag             *textinput.Model
 
 	events   chan tea.Msg
 	reporter *tuiReporter
@@ -235,6 +247,7 @@ func newModel() *Model {
 	m.sshPort = input("22", "")
 	m.sshUser = input("", "")
 	m.sshKey = input("", "")
+	m.sshKeyPassphrase = passwordInput("")
 	m.sshPassword = passwordInput("")
 	m.knownHosts = input("", "")
 	m.remoteDir = input("", "")
@@ -244,14 +257,18 @@ func newModel() *Model {
 	m.jumpUserEdit = input("", "")
 	m.jumpAuthEdit = newJumpDraft().authMode
 	m.jumpKeyEdit = input("", "")
+	m.jumpKeyPassphraseEdit = passwordInput("")
 	m.jumpPasswordEdit = passwordInput("")
 	m.jumpKnownHostsEdit = input("", "")
 
 	m.repoKeySourceEdit = repoKeySourceFile
+	m.repoAuthTypeEdit = core.RepositoryAuthNone
 	m.repoNameEdit = input("", "")
 	m.repoURLEdit = input("", "")
 	m.repoKeyValueEdit = input("", "")
 	m.repoCAEdit = input("", "")
+	m.repoAuthUserEdit = input("", "")
+	m.repoAuthSecretEdit = passwordInput("")
 	m.repoAPTSuiteEdit = input("", "")
 	m.repoAPTComponentsEdit = input("main", "")
 
@@ -260,6 +277,11 @@ func newModel() *Model {
 	m.settingsTemp = input(settings.TempDir, "")
 	m.settingsTimeout = input(strconv.Itoa(settings.StageTimeoutSecs), "")
 	m.settingsLanguage = input(languageSettingValue(settings.Language), "")
+	m.settingsContainerHost = input(settings.ContainerHost, "")
+	m.settingsHTTPProxy = input(settings.HTTPProxy, "")
+	m.settingsHTTPSProxy = input(settings.HTTPSProxy, "")
+	m.settingsNoProxy = input(settings.NoProxy, "")
+	m.settingsCACert = input(settings.CACertFile, "")
 	m.syslogEnabled = settings.SyslogEnabled
 	m.syslogHost = input(settings.SyslogHost, "")
 	port := settings.SyslogPort
@@ -307,7 +329,7 @@ func (m *Model) localizeInputs() {
 		m.archInput.Placeholder = i18n.T("amd64 ou x86_64")
 	}
 	if m.methodInput != nil {
-		m.methodInput.Placeholder = i18n.T("docker, wsl ou auto")
+		m.methodInput.Placeholder = i18n.T("docker, podman, wsl ou auto")
 	}
 	if m.imageInput != nil {
 		m.imageInput.Placeholder = i18n.T("opcional: opf/centos-7:f3")
@@ -333,6 +355,9 @@ func (m *Model) localizeInputs() {
 	if m.sshKey != nil {
 		m.sshKey.Placeholder = i18n.T("caminho da chave (opcional)")
 	}
+	if m.sshKeyPassphrase != nil {
+		m.sshKeyPassphrase.Placeholder = i18n.T("passphrase da chave (opcional)")
+	}
 	if m.sshPassword != nil {
 		m.sshPassword.Placeholder = i18n.T("senha SSH/conta")
 	}
@@ -354,6 +379,9 @@ func (m *Model) localizeInputs() {
 	if m.jumpKeyEdit != nil {
 		m.jumpKeyEdit.Placeholder = i18n.T("caminho da chave")
 	}
+	if m.jumpKeyPassphraseEdit != nil {
+		m.jumpKeyPassphraseEdit.Placeholder = i18n.T("passphrase da chave (somente em memória)")
+	}
 	if m.jumpPasswordEdit != nil {
 		m.jumpPasswordEdit.Placeholder = i18n.T("senha da ponte")
 	}
@@ -369,6 +397,12 @@ func (m *Model) localizeInputs() {
 	if m.repoCAEdit != nil {
 		m.repoCAEdit.Placeholder = i18n.T("CA customizada (opcional)")
 	}
+	if m.repoAuthUserEdit != nil {
+		m.repoAuthUserEdit.Placeholder = i18n.T("usuário (somente em memória)")
+	}
+	if m.repoAuthSecretEdit != nil {
+		m.repoAuthSecretEdit.Placeholder = i18n.T("senha ou bearer token (somente em memória)")
+	}
 	if m.pkgInput != nil {
 		m.pkgInput.Placeholder = i18n.T("ex.: vim, curl")
 	}
@@ -383,6 +417,21 @@ func (m *Model) localizeInputs() {
 	}
 	if m.settingsLanguage != nil {
 		m.settingsLanguage.Placeholder = i18n.T("auto, en, pt-BR ou es")
+	}
+	if m.settingsContainerHost != nil {
+		m.settingsContainerHost.Placeholder = i18n.T("unix:///.../podman.sock ou padrão")
+	}
+	if m.settingsHTTPProxy != nil {
+		m.settingsHTTPProxy.Placeholder = "http://proxy.corp:8080"
+	}
+	if m.settingsHTTPSProxy != nil {
+		m.settingsHTTPSProxy.Placeholder = "http://proxy.corp:8080"
+	}
+	if m.settingsNoProxy != nil {
+		m.settingsNoProxy.Placeholder = "localhost,127.0.0.1,.corp.local"
+	}
+	if m.settingsCACert != nil {
+		m.settingsCACert.Placeholder = i18n.T("caminho do arquivo PEM (opcional)")
 	}
 	if m.syslogHost != nil {
 		m.syslogHost.Placeholder = i18n.T("host do Syslog")
@@ -894,21 +943,24 @@ func (m *Model) buildForm() {
 			{label: i18n.T("Distro"), input: m.targetInput},
 			{label: i18n.T("Versão"), input: m.versionInput},
 			{label: i18n.T("Arquitetura"), input: m.archInput},
-			{label: i18n.T("Fetch (docker/wsl/auto)"), input: m.methodInput},
+			{label: i18n.T("Fetch (docker/podman/wsl/auto)"), input: m.methodInput},
 			{label: i18n.T("Imagem Docker"), input: m.imageInput},
 			{label: i18n.T("Distro WSL"), input: m.wslInput},
 			{label: i18n.T("Saída"), input: m.outInput},
 			{label: i18n.T("SQLite"), input: m.dbInput},
 			{label: i18n.T("Incluir opcionais"), toggle: &m.optional},
+			{label: i18n.T("Gerar bundle offline (.tar.gz)"), toggle: &m.offlineBundle},
 		}
 	case screenSSH:
 		m.form = []formItem{
 			{label: i18n.T("Habilitar SSH"), toggle: &m.sshEnabled},
 			{label: i18n.T("Ignorar host key (inseguro)"), toggle: &m.skipHostKey},
+			{label: i18n.T("Usar ssh-agent"), toggle: &m.sshUseAgent},
 			{label: i18n.T("Host"), input: m.sshHost},
 			{label: i18n.T("Porta"), input: m.sshPort},
 			{label: i18n.T("Usuário"), input: m.sshUser},
 			{label: i18n.T("Chave privada"), input: m.sshKey},
+			{label: i18n.T("Passphrase da chave"), input: m.sshKeyPassphrase},
 			{label: i18n.T("Senha da conta"), input: m.sshPassword},
 			{label: i18n.T("Known hosts"), input: m.knownHosts},
 			{label: i18n.T("Diretório remoto"), input: m.remoteDir},
@@ -918,9 +970,10 @@ func (m *Model) buildForm() {
 			{label: i18n.T("Host"), input: m.jumpHostEdit},
 			{label: i18n.T("Porta"), input: m.jumpPortEdit},
 			{label: i18n.T("Usuário"), input: m.jumpUserEdit},
-			{label: i18n.T("Autenticação"), choice: &m.jumpAuthEdit, choices: []string{"password", "key", "key+password"}, choiceDisplay: jumpAuthDisplay},
+			{label: i18n.T("Autenticação"), choice: &m.jumpAuthEdit, choices: []string{"password", "key", "key+password", "agent"}, choiceDisplay: jumpAuthDisplay},
 			{label: i18n.T("Senha"), input: m.jumpPasswordEdit},
 			{label: i18n.T("Chave privada"), input: m.jumpKeyEdit},
+			{label: i18n.T("Passphrase da chave"), input: m.jumpKeyPassphraseEdit},
 			{label: i18n.T("Known hosts"), input: m.jumpKnownHostsEdit},
 		}
 	case screenRepoEdit:
@@ -930,6 +983,9 @@ func (m *Model) buildForm() {
 			{label: i18n.T("Chave"), choice: &m.repoKeySourceEdit, choices: []string{repoKeySourceFile, repoKeySourceURL, repoKeySourceNone}, choiceDisplay: repoKeySourceDisplay},
 			{label: i18n.T("Chave (arquivo/URL)"), input: m.repoKeyValueEdit},
 			{label: i18n.T("CA customizada"), input: m.repoCAEdit},
+			{label: i18n.T("Autenticação efêmera"), choice: &m.repoAuthTypeEdit, choices: []string{core.RepositoryAuthNone, core.RepositoryAuthBasic, core.RepositoryAuthBearer}, choiceDisplay: repoAuthDisplay},
+			{label: i18n.T("Usuário do repositório"), input: m.repoAuthUserEdit},
+			{label: i18n.T("Senha / Token"), input: m.repoAuthSecretEdit},
 		}
 		if m.repoFamilyEdit == core.RepositoryFamilyAPT {
 			m.form = append(m.form,
@@ -956,6 +1012,11 @@ func (m *Model) buildForm() {
 			{label: i18n.T("Idioma da interface"), input: m.settingsLanguage},
 			{label: i18n.T("Diretório temporário"), input: m.settingsTemp},
 			{label: i18n.T("Timeout (segundos)"), input: m.settingsTimeout},
+			{label: i18n.T("Container host"), input: m.settingsContainerHost},
+			{label: "HTTP_PROXY", input: m.settingsHTTPProxy},
+			{label: "HTTPS_PROXY", input: m.settingsHTTPSProxy},
+			{label: "NO_PROXY", input: m.settingsNoProxy},
+			{label: i18n.T("CA corporativa (PEM)"), input: m.settingsCACert},
 			{label: i18n.T("Habilitar Syslog"), toggle: &m.syslogEnabled},
 			{label: i18n.T("Host Syslog"), input: m.syslogHost},
 			{label: i18n.T("Porta Syslog"), input: m.syslogPort},

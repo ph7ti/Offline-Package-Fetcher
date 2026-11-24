@@ -13,7 +13,7 @@
 
 **Baixe pacotes Linux e o conjunto completo de dependências para ambientes isolados — e, quando fizer sentido, transfira por SSH/SFTP e instale no destino.**
 
-Versão **0.3.1** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
+Versão **0.4.0** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
 
 ---
 
@@ -56,14 +56,18 @@ Fluxo resumido de uma sessão:
 ## Destaques
 
 - **Três famílias de pacotes**: APT (Ubuntu/Debian), YUM/DNF (CentOS, RHEL, Rocky Linux, AlmaLinux, Fedora) e APK (Alpine).
-- **Ambiente isolado por sessão**: Docker em todas as famílias; WSL no Windows para APT.
+- **Ambiente isolado por sessão**: Docker e Podman (incluindo rootless) em todas as famílias; WSL no Windows para APT.
+- **Bundle air-gapped autocontido (`--offline-bundle`)**: empacota artefatos validados, `SHA256SUMS`, `metadata.json` e o script executável `install-offline.sh` em um `.tar.gz`.
+- **Proxy corporativo e CA customizada**: injeta `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` e CAs PEM customizadas no contêiner isolado sem persistir credenciais de proxy.
+- **Pinning de versão**: solicita versões exatas (`pkg=versao`, `pkg:arch=versao`, `pkg-versao`) em APT, RPM e APK com suporte a pré-check e *Package diff*.
+- **Perfis salvos de sessão**: presets reutilizáveis sem segredos em `profiles.json` (`0600`) na CLI e GUI.
 - **Pipeline de 13 etapas** com checkpoint, retomada segura, cancelamento (`abortada`) e cleanup garantido.
 - **Integridade SHA-256 em três pontos** (P1 no ambiente, P2 no manifesto do host, P3 no destino) com um único `SHA256SUMS` por sessão.
 - **Package diff (v0.3.0)**: coleta opcional de versões instaladas (`all`, `default` ou `none`) e pausa antes do pipeline quando há atualizações, mostrando o salto e perguntando se deve prosseguir. Inventário, diff e decisão ficam no relatório.
 - **Múltiplos pacotes por sessão**, com pré-check remoto de pacotes já instalados e `--force-reinstall` quando necessário.
-- **SSH/SFTP** com verificação estrita de host key, autenticação por chave ou senha e **cadeia de pontes (jump hosts)** com credenciais independentes por salto.
+- **SSH/SFTP** com verificação estrita de host key, chaves com passphrase, `ssh-agent` nativo (Unix e Windows), importação de aliases/ProxyJump de `~/.ssh/config`, autenticação por senha e **cadeia de pontes (jump hosts)** com credenciais independentes por salto.
 - **Instalação remota** apenas após confirmação explícita, com `sudo` pela senha da conta SSH enviada **somente por stdin**.
-- **Repositórios adicionais** (APT/RPM/APK) usados apenas no ambiente isolado, com GPG/TLS verificados por padrão.
+- **Repositórios adicionais** (APT/RPM/APK) usados apenas no ambiente isolado, com GPG/TLS verificados por padrão e autenticação efêmera (`Basic Auth` / `Bearer Token`, nunca persistida).
 - **Relatórios JSON e Markdown** por sessão, além de **Syslog externo** opcional (UDP/TCP, RFC 5424).
 - **Histórico local** em SQLite (sessões, pacotes, eventos, etapas e pacotes solicitados) com arquivamento lógico.
 - **Idioma da interface seguindo o sistema operacional** (inglês quando o idioma do SO não é suportado), com inglês, português do Brasil e espanhol disponíveis; selecionável em **Configurações Globais** (GUI e TUI) ou por `--lang`/`OPF_LANG` na CLI.
@@ -80,18 +84,19 @@ Métodos de fetch:
 
 | Método | Plataformas | Famílias | Requisito |
 |:---|:---|:---|:---|
-| `docker` | Linux, macOS, Windows | todas | daemon Docker acessível |
+| `docker` | Linux, macOS, Windows | todas | daemon Docker acessível (incluindo Docker rootless) |
+| `podman` | Linux, macOS, Windows | todas | socket API Podman acessível (`podman.socket` / `podman machine`) |
 | `wsl` | Windows | apenas APT | WSL2 com distro registrada e acesso `root` |
 
 Arquiteturas reconhecidas: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` e `i386`/`i686` (normalizadas por família: `amd64` no APT, `x86_64` no RPM, entre outras).
 
-Limites conhecidos da v0.3.1:
+Limites conhecidos da v0.4.0:
 
-- **macOS** é plataforma secundária e requer Docker para baixar pacotes.
-- **WSL** atende apenas Ubuntu/Debian (APT); famílias RPM/APK exigem Docker.
+- **macOS** é plataforma secundária e requer Docker ou Podman para baixar pacotes.
+- **WSL** atende apenas Ubuntu/Debian (APT); famílias RPM/APK exigem Docker ou Podman.
 - **Instalação remota** exige SSH configurado, confirmação explícita e, se o usuário não for `root`, a senha da conta para `sudo`.
 - **GUI** não compila com `CGO_ENABLED=0` (o binário resultante é apenas um stub com mensagem de erro).
-- **Repositórios adicionais** não aceitam autenticação (usuário/senha) nesta versão.
+- **Repositórios privados APK** suportam `Basic Auth` (apenas no contêiner efêmero); cabeçalhos `Bearer Token` não são suportados pela CLI `apk`.
 - **Idioma da interface:** os diagnósticos de baixo nível permanecem em português do Brasil mesmo com outro idioma selecionado: saída dos gerenciadores de pacotes e do ambiente isolado (apt/dpkg, dnf/yum/rpm, apk, ferramentas Docker/WSL), causas de erro das camadas de fetch/transferência/instalação/armazenamento e parte das linhas de log interna.
 - **Empacotamento da release:** executáveis Windows são distribuídos brutos dentro de `.zip` (sem UPX), formato aceito pelo Cortex XDR e EDRs similares; binários macOS são `.tar.gz` porque o UPX não empacota Mach-O. Assinatura de código é recomendada para ampliar a confiança.
 - **Testes de integração** dependem da build tag `integration` e de Docker (e WSL nos testes específicos).
@@ -158,7 +163,7 @@ As releases publicam **somente instaladores** — sem binários soltos de CLI/TU
 
 Cada release publica **9 ativos**: os oito instaladores acima e `SHA256SUMS`.
 
-1. Abra [a página da release v0.3.1](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.3.1).
+1. Abra [a página da release v0.4.0](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.4.0).
 2. Baixe o instalador da sua plataforma e o `SHA256SUMS`.
 3. Verifique:
 
@@ -420,6 +425,6 @@ O OPF foi desenvolvido com **apoio intensivo de ferramentas de IA** — geraçã
 
 ## Versão
 
-**Versão 0.3.1** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
+**Versão 0.4.0** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
 
 [English](../README.md) | **Português (BR)**

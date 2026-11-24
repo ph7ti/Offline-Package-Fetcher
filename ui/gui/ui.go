@@ -28,6 +28,7 @@ type UI struct {
 	store          *store.Store
 	settings       config.Settings
 	settingsPath   string
+	profilesPath   string
 	settingsErr    error
 	themeMode      string
 	screenTitle    string
@@ -67,36 +68,47 @@ type UI struct {
 	wslEntry           *widget.Entry
 	optionalCheck      *widget.Check
 	forceCheck         *widget.Check
+	offlineBundleCheck *widget.Check
 	versionReportGroup *widget.RadioGroup
 	pkgEntry           *widget.Entry
+	profileSelect      *widget.Select
+	profileNameEntry   *widget.Entry
 
-	sshEnabled  *widget.Check
-	sshHost     *widget.Entry
-	sshPort     *widget.Entry
-	sshUser     *widget.Entry
-	sshKey      *widget.Entry
-	sshPassword *widget.Entry
-	skipHostKey *widget.Check
-	knownHosts  *widget.Entry
-	jumpRows    []*jumpRow
-	jumpList    *fyne.Container
-	repoRows    []*repoRow
-	repoList    *fyne.Container
-	remoteDir   *widget.Entry
+	sshEnabled       *widget.Check
+	sshHost          *widget.Entry
+	sshPort          *widget.Entry
+	sshUser          *widget.Entry
+	sshKey           *widget.Entry
+	sshKeyPassphrase *widget.Entry
+	sshUseAgent      *widget.Check
+	sshConfigAlias   *widget.Entry
+	sshPassword      *widget.Entry
+	skipHostKey      *widget.Check
+	knownHosts       *widget.Entry
+	jumpRows         []*jumpRow
+	jumpList         *fyne.Container
+	repoRows         []*repoRow
+	repoList         *fyne.Container
+	remoteDir        *widget.Entry
 
 	installCheck *widget.Check
 	sudoCheck    *widget.Check
 	sudoPassword *widget.Entry
 
-	outEntry        *widget.Entry
-	dbEntry         *widget.Entry
-	settingsTemp    *widget.Entry
-	settingsTimeout *widget.Entry
-	syslogCheck     *widget.Check
-	syslogHost      *widget.Entry
-	syslogPort      *widget.Entry
-	syslogProto     *widget.Entry
-	syslogTag       *widget.Entry
+	outEntry              *widget.Entry
+	dbEntry               *widget.Entry
+	settingsTemp          *widget.Entry
+	settingsTimeout       *widget.Entry
+	settingsContainerHost *widget.Entry
+	settingsHTTPProxy     *widget.Entry
+	settingsHTTPSProxy    *widget.Entry
+	settingsNoProxy       *widget.Entry
+	settingsCACert        *widget.Entry
+	syslogCheck           *widget.Check
+	syslogHost            *widget.Entry
+	syslogPort            *widget.Entry
+	syslogProto           *widget.Entry
+	syslogTag             *widget.Entry
 }
 
 func Run() error {
@@ -188,11 +200,16 @@ func newUI(a fyne.App, window fyne.Window) *UI {
 	ui.wslEntry.SetPlaceHolder(i18n.T("ex.: ubuntu-24.04"))
 	ui.optionalCheck = widget.NewCheck(i18n.T("Incluir dependências opcionais"), nil)
 	ui.forceCheck = widget.NewCheck(i18n.T("Forçar reinstalação (ignorar pré-check)"), nil)
+	ui.offlineBundleCheck = widget.NewCheck(i18n.T("Gerar bundle air-gapped (.tar.gz + install-offline.sh)"), nil)
 	ui.versionReportGroup = widget.NewRadioGroup(versionReportOptions(), nil)
 	ui.versionReportGroup.SetSelected("Default")
 	ui.pkgEntry = widget.NewMultiLineEntry()
 	ui.pkgEntry.SetPlaceHolder(i18n.T("Um pacote por linha ou separado por vírgula. Ex.: vim, curl"))
 	ui.pkgEntry.SetMinRowsVisible(4)
+	ui.profileSelect = widget.NewSelect(nil, nil)
+	ui.profileSelect.PlaceHolder = i18n.T("Selecione um perfil")
+	ui.profileNameEntry = widget.NewEntry()
+	ui.profileNameEntry.SetPlaceHolder(i18n.T("nome do perfil"))
 
 	ui.sshEnabled = widget.NewCheck(i18n.T("Enviar e instalar via SSH"), nil)
 	ui.sshHost = widget.NewEntry()
@@ -203,6 +220,11 @@ func newUI(a fyne.App, window fyne.Window) *UI {
 	ui.sshUser.SetPlaceHolder(i18n.T("usuário"))
 	ui.sshKey = widget.NewEntry()
 	ui.sshKey.SetPlaceHolder(i18n.T("~/.ssh/id_ed25519 (opcional)"))
+	ui.sshKeyPassphrase = widget.NewPasswordEntry()
+	ui.sshKeyPassphrase.SetPlaceHolder(i18n.T("passphrase da chave (opcional, somente em memória)"))
+	ui.sshUseAgent = widget.NewCheck(i18n.T("Usar ssh-agent do sistema"), nil)
+	ui.sshConfigAlias = widget.NewEntry()
+	ui.sshConfigAlias.SetPlaceHolder(i18n.T("alias em ~/.ssh/config"))
 	ui.sshPassword = widget.NewPasswordEntry()
 	ui.sshPassword.SetPlaceHolder(i18n.T("senha SSH/conta (também usada pelo sudo)"))
 	ui.skipHostKey = widget.NewCheck(i18n.T("Ignorar verificação de host key (inseguro)"), nil)
@@ -238,6 +260,21 @@ func newUI(a fyne.App, window fyne.Window) *UI {
 	ui.settingsTemp.SetText(settings.TempDir)
 	ui.settingsTimeout = widget.NewEntry()
 	ui.settingsTimeout.SetText(strconv.Itoa(settings.StageTimeoutSecs))
+	ui.settingsContainerHost = widget.NewEntry()
+	ui.settingsContainerHost.SetText(settings.ContainerHost)
+	ui.settingsContainerHost.SetPlaceHolder(i18n.T("unix:///.../podman.sock ou padrão"))
+	ui.settingsHTTPProxy = widget.NewEntry()
+	ui.settingsHTTPProxy.SetText(settings.HTTPProxy)
+	ui.settingsHTTPProxy.SetPlaceHolder("http://proxy.corp:8080")
+	ui.settingsHTTPSProxy = widget.NewEntry()
+	ui.settingsHTTPSProxy.SetText(settings.HTTPSProxy)
+	ui.settingsHTTPSProxy.SetPlaceHolder("http://proxy.corp:8080")
+	ui.settingsNoProxy = widget.NewEntry()
+	ui.settingsNoProxy.SetText(settings.NoProxy)
+	ui.settingsNoProxy.SetPlaceHolder("localhost,127.0.0.1,.corp.local")
+	ui.settingsCACert = widget.NewEntry()
+	ui.settingsCACert.SetText(settings.CACertFile)
+	ui.settingsCACert.SetPlaceHolder(i18n.T("caminho do arquivo PEM (opcional)"))
 	ui.syslogCheck = widget.NewCheck(i18n.T("Habilitar envio ao Syslog externo"), nil)
 	ui.syslogCheck.SetChecked(settings.SyslogEnabled)
 	ui.syslogHost = widget.NewEntry()
@@ -344,13 +381,15 @@ func (u *UI) fetchMethod() string {
 }
 
 // methodOptions returns the fetch-method labels in the active interface
-// language. Docker and WSL are product names and stay unchanged.
+// language. Docker, Podman and WSL are product names and stay unchanged.
 func methodOptions() []string {
-	return []string{"Docker", "WSL", i18n.T("Automático")}
+	return []string{"Docker", "Podman", "WSL", i18n.T("Automático")}
 }
 
 func methodLabel(mode string) string {
 	switch mode {
+	case "podman":
+		return "Podman"
 	case "wsl":
 		return "WSL"
 	case "auto":
@@ -362,6 +401,8 @@ func methodLabel(mode string) string {
 
 func methodMode(selected string) string {
 	switch selected {
+	case "Podman":
+		return "podman"
 	case "WSL":
 		return "wsl"
 	case "Automático", "Automatic", i18n.T("Automático"):

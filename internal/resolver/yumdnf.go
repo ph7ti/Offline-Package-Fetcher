@@ -32,12 +32,24 @@ func NewYumDnfResolver(exec core.CommandExecutor, arch, workDir string) *YumDnfR
 	return &YumDnfResolver{exec: exec, arch: arch, workDir: workDir, roots: make(map[string]struct{})}
 }
 
+func rpmNormalizeSpec(pkg string) (string, error) {
+	spec, err := core.ParsePackageSpec(core.RepositoryFamilyRPM, pkg)
+	if err != nil {
+		return "", fmt.Errorf("nome de pacote RPM inválido: %q", pkg)
+	}
+	if spec.Version != "" {
+		return spec.Name + "-" + spec.Version, nil
+	}
+	return spec.Name, nil
+}
+
 func (r *YumDnfResolver) ListDependencies(ctx context.Context, pkg string, includeOptional bool) ([]string, error) {
 	if r.exec == nil {
 		return nil, errors.New("executor do ambiente isolado não configurado")
 	}
-	if !rpmPackagePattern.MatchString(pkg) {
-		return nil, fmt.Errorf("nome de pacote RPM inválido: %q", pkg)
+	targetSpec, err := rpmNormalizeSpec(pkg)
+	if err != nil {
+		return nil, err
 	}
 	if err := r.validate(); err != nil {
 		return nil, err
@@ -52,14 +64,14 @@ func (r *YumDnfResolver) ListDependencies(ctx context.Context, pkg string, inclu
 	if r.roots == nil {
 		r.roots = make(map[string]struct{})
 	}
-	r.roots[pkg] = struct{}{}
+	r.roots[targetSpec] = struct{}{}
 	if manager == "dnf" {
 		// DNF resolves dependencies during download (--resolve --alldeps).
 		// This also supports DNF5, which removed repoquery --resolve.
-		return []string{pkg}, nil
+		return []string{targetSpec}, nil
 	}
 
-	cmd := r.listCommand(pkg)
+	cmd := r.listCommand(targetSpec)
 	stdout, err := r.exec.Exec(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("resolver dependências RPM de %q: %w", pkg, err)
@@ -68,8 +80,8 @@ func (r *YumDnfResolver) ListDependencies(ctx context.Context, pkg string, inclu
 	if err != nil {
 		return nil, fmt.Errorf("interpretar saída do repoquery para %q: %w", pkg, err)
 	}
-	if !contains(deps, pkg) {
-		deps = append(deps, pkg)
+	if !contains(deps, targetSpec) {
+		deps = append(deps, targetSpec)
 		sort.Strings(deps)
 	}
 	return deps, nil
@@ -88,15 +100,23 @@ func (r *YumDnfResolver) ListCandidates(ctx context.Context, pkgs []string, incl
 	r.manager = manager
 	r.includeOptional = includeOptional
 	names := make(map[string]struct{}, len(pkgs))
+	pinned := make(map[string]string)
+	normalizedInputs := make([]string, 0, len(pkgs))
 	for _, pkg := range pkgs {
-		if !rpmPackagePattern.MatchString(pkg) {
-			return nil, fmt.Errorf("nome de pacote RPM inválido: %q", pkg)
+		targetSpec, specErr := rpmNormalizeSpec(pkg)
+		if specErr != nil {
+			return nil, specErr
 		}
-		names[pkg] = struct{}{}
+		base := core.PackageBaseName(pkg)
+		if ver := core.PackagePinnedVersion(pkg); ver != "" {
+			pinned[base] = ver
+		}
+		names[base] = struct{}{}
+		normalizedInputs = append(normalizedInputs, targetSpec)
 	}
 	if manager == "dnf" {
 		depCmd := []string{"dnf", "repoquery", "--requires", "--resolve", "--recursive", "--queryformat=%{name}"}
-		depCmd = append(depCmd, pkgs...)
+		depCmd = append(depCmd, normalizedInputs...)
 		if output, depErr := r.exec.Exec(ctx, depCmd); depErr == nil {
 			for _, name := range strings.Split(output, "\n") {
 				name = strings.TrimSpace(name)
@@ -134,7 +154,11 @@ func (r *YumDnfResolver) ListCandidates(ctx context.Context, pkgs []string, incl
 	}
 	candidates := make([]core.CandidatePackage, 0, len(names))
 	for name := range names {
-		if version := versions[name]; version != "" {
+		version := pinned[name]
+		if version == "" {
+			version = versions[name]
+		}
+		if version != "" {
 			candidates = append(candidates, core.CandidatePackage{Name: name, Version: version})
 		}
 	}

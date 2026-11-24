@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS sessoes (
     so_destino      TEXT NOT NULL,
     versao_destino  TEXT NOT NULL,
     arch_destino    TEXT NOT NULL,
-    metodo_fetch    TEXT NOT NULL CHECK (metodo_fetch IN ('docker','wsl')),
+    metodo_fetch    TEXT NOT NULL CHECK (metodo_fetch IN ('docker','podman','wsl')),
     host_destino    TEXT,
     include_optional INTEGER NOT NULL DEFAULT 0,
     status          TEXT NOT NULL CHECK (status IN
@@ -148,6 +148,10 @@ func Open(path string) (*Store, error) {
 	}
 
 	store := &Store{db: db}
+	if err := store.migrateSessoesFetchMethod(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := store.migratePacotesStatus(ctx); err != nil {
 		db.Close()
 		return nil, err
@@ -213,6 +217,79 @@ func (s *Store) ensureColumns(ctx context.Context, table string, columns map[str
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("adicionar coluna %s.%s: %w", table, name, err)
 		}
+	}
+	return nil
+}
+
+func (s *Store) migrateSessoesFetchMethod(ctx context.Context) error {
+	var ddl string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessoes'",
+	).Scan(&ddl)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspecionar schema de sessoes: %w", err)
+	}
+	if strings.Contains(ddl, "'podman'") {
+		return nil
+	}
+
+	// Ensure all modern columns exist on the legacy table before copying so the
+	// SELECT list below is always valid even for v0.1.0 databases.
+	if err := s.ensureColumns(ctx, "sessoes", map[string]string{
+		"etapa_atual":    "INTEGER NOT NULL DEFAULT 1",
+		"output_dir":     "TEXT",
+		"remote_dir":     "TEXT",
+		"imagem_docker":  "TEXT",
+		"wsl_distro":     "TEXT",
+		"ambiente_id":    "TEXT",
+		"config_json":    "TEXT",
+		"host_info_json": "TEXT",
+		"preview_json":   "TEXT",
+		"arquivada":      "INTEGER NOT NULL DEFAULT 0",
+	}); err != nil {
+		return err
+	}
+
+	if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("desabilitar foreign_keys na migração de sessoes: %w", err)
+	}
+	defer func() {
+		_, _ = s.db.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
+	}()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("iniciar migração de sessoes: %w", err)
+	}
+	defer tx.Rollback()
+
+	statements := []string{
+		"DROP TABLE IF EXISTS sessoes_old",
+		"ALTER TABLE sessoes RENAME TO sessoes_old",
+		sessoesTable,
+		`INSERT INTO sessoes (
+			id, iniciada_em, finalizada_em, so_destino, versao_destino, arch_destino,
+			metodo_fetch, host_destino, include_optional, status, etapa_atual,
+			output_dir, remote_dir, imagem_docker, wsl_distro, ambiente_id,
+			config_json, host_info_json, preview_json, arquivada
+		) SELECT
+			id, iniciada_em, finalizada_em, so_destino, versao_destino, arch_destino,
+			metodo_fetch, host_destino, include_optional, status, etapa_atual,
+			output_dir, remote_dir, imagem_docker, wsl_distro, ambiente_id,
+			config_json, host_info_json, preview_json, arquivada
+		FROM sessoes_old`,
+		"DROP TABLE sessoes_old",
+	}
+	for _, stmt := range statements {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("migrar tabela sessoes: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("confirmar migração de sessoes: %w", err)
 	}
 	return nil
 }

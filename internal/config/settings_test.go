@@ -52,8 +52,12 @@ func TestLoadMissingReturnsDefault(t *testing.T) {
 }
 
 func TestSettingsValidate(t *testing.T) {
+	if err := (Settings{FetchMethod: "podman"}).Validate(); err != nil {
+		t.Fatalf("podman deveria ser aceito: %v", err)
+	}
 	tests := []Settings{
-		{FetchMethod: "podman"},
+		{FetchMethod: "lxc"},
+		{HTTPProxy: "http://user:pass@proxy.corp:8080"},
 		{StageTimeoutSecs: -1},
 		{SyslogPort: 70000},
 		{SyslogProto: "sctp"},

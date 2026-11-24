@@ -31,7 +31,7 @@ func TestNewValidations(t *testing.T) {
 		{"sem versão", func(c *Config) { c.TargetVersion = "" }},
 		{"sem arch", func(c *Config) { c.TargetArch = "" }},
 		{"distro inválida", func(c *Config) { c.TargetOS = "archlinux" }},
-		{"método inválido", func(c *Config) { c.FetchMethod = "podman" }},
+		{"método inválido", func(c *Config) { c.FetchMethod = "lxc" }},
 		{"wsl não-apt", func(c *Config) { c.TargetOS = "centos"; c.TargetVersion = "7"; c.FetchMethod = "wsl" }},
 		{"install sem SSH", func(c *Config) {
 			c.Install = true
@@ -96,9 +96,29 @@ func TestNewWithSyslog(t *testing.T) {
 	}
 }
 
+func TestNewPodmanLazyService(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.FetchMethod = "podman"
+	cfg.ContainerHost = "unix:///run/user/1000/podman/podman.sock"
+	service, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New(podman): %v", err)
+	}
+	defer service.Close()
+	if service.fetcher == nil {
+		t.Fatal("fetcher não configurado para podman")
+	}
+	if service.Settings().FetchMethod != "podman" {
+		t.Fatalf("FetchMethod = %q, want podman", service.Settings().FetchMethod)
+	}
+}
+
 func TestResolveFetchMethod(t *testing.T) {
 	if got := resolveFetchMethod("docker", "apt"); got != "docker" {
 		t.Fatalf("docker = %q", got)
+	}
+	if got := resolveFetchMethod("podman", "rpm"); got != "podman" {
+		t.Fatalf("podman = %q", got)
 	}
 	if got := resolveFetchMethod("auto", "rpm"); got != "docker" {
 		t.Fatalf("auto rpm = %q", got)

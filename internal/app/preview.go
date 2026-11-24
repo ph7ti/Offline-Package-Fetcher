@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"opf/internal/core"
@@ -243,10 +242,7 @@ func (s *Service) cleanupWarmResources() error {
 }
 
 func packageKey(name string) string {
-	if i := strings.LastIndexByte(name, ':'); i > 0 {
-		return name[:i]
-	}
-	return name
+	return core.PackageBaseName(name)
 }
 
 func buildPackagePreview(mode core.VersionReportMode, roots []string, candidates []core.CandidatePackage, installed []core.InstalledPackage) (core.PackagePreviewData, map[string]bool) {
@@ -255,24 +251,34 @@ func buildPackagePreview(mode core.VersionReportMode, roots []string, candidates
 		installedBy[packageKey(pkg.Name)] = pkg.Version
 	}
 	rootSet := make(map[string]bool, len(roots))
+	pinnedSet := make(map[string]string, len(roots))
 	for _, pkg := range roots {
-		rootSet[packageKey(pkg)] = true
+		base := packageKey(pkg)
+		rootSet[base] = true
+		if ver := core.PackagePinnedVersion(pkg); ver != "" {
+			pinnedSet[base] = ver
+		}
 	}
 	diff := make([]core.PackageDiff, 0)
 	upgrades := make(map[string]bool)
 	for _, candidate := range candidates {
-		prior, ok := installedBy[packageKey(candidate.Name)]
+		base := packageKey(candidate.Name)
+		prior, ok := installedBy[base]
 		if !ok || prior == "" || candidate.Version == "" {
 			continue
 		}
-		if core.CompareVersions(candidate.Version, prior) > 0 {
+		changed := core.CompareVersions(candidate.Version, prior) > 0
+		if !changed && pinnedSet[base] != "" && prior != candidate.Version {
+			changed = true
+		}
+		if changed {
 			diff = append(diff, core.PackageDiff{
 				Name: candidate.Name, From: prior, To: candidate.Version,
 				IsDependency: candidate.IsDependency,
 			})
-			if rootSet[packageKey(candidate.Name)] {
+			if rootSet[base] {
 				upgrades[candidate.Name] = true
-				upgrades[packageKey(candidate.Name)] = true
+				upgrades[base] = true
 			}
 		}
 	}

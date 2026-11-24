@@ -19,9 +19,11 @@ import (
 	"time"
 
 	opfapp "opf/internal/app"
+	"opf/internal/config"
 	"opf/internal/core"
 	"opf/internal/i18n"
 	"opf/internal/observability"
+	"opf/internal/transfer"
 	"opf/internal/version"
 )
 
@@ -132,17 +134,35 @@ func run(args []string) error {
 	forceReinstall := fs.Bool("force-reinstall", false, i18n.T("ignora o pré-check e reinstala pacotes já presentes"))
 	versionReport := fs.String("version-report", "", i18n.T("coleta de versões instaladas: all, default ou none"))
 	imageOverride := fs.String("image", "", i18n.T("imagem Docker alternativa (ex.: opf/centos-7:f3)"))
-	fetchMethod := fs.String("fetch-method", "docker", i18n.T("método de fetch: docker ou wsl"))
+	fetchMethod := fs.String("fetch-method", "docker", i18n.T("método de fetch: docker, podman ou wsl"))
+	containerHost := fs.String("container-host", "", i18n.T("URI do daemon Docker/Podman (ex.: unix:///run/user/1000/podman/podman.sock)"))
 	wslDistro := fs.String("wsl-distro", "", i18n.T("distro WSL registrada (padrão derivado de --target)"))
 	tempDir := fs.String("temp-dir", "", i18n.T("diretório base para temporários do host (padrão: SO)"))
 	withOptional := fs.Bool("with-optional", false, i18n.T("inclui dependências opcionais (Recommends/Suggests/Enhances ou weak deps)"))
 	outDir := fs.String("out", "./opf-output", i18n.T("diretório base de saída"))
+	offlineBundle := fs.String("offline-bundle", "", i18n.T("gera bundle air-gapped .tar.gz com install-offline.sh (use 'auto' ou um caminho)"))
 	dbPath := fs.String("db", "./opf.db", i18n.T("caminho do arquivo SQLite"))
 
+	httpProxy := fs.String("http-proxy", "", i18n.T("proxy HTTP para o contêiner isolado"))
+	httpsProxy := fs.String("https-proxy", "", i18n.T("proxy HTTPS para o contêiner isolado"))
+	noProxy := fs.String("no-proxy", "", i18n.T("lista NO_PROXY para o contêiner isolado"))
+	inheritProxy := fs.Bool("inherit-proxy", false, i18n.T("herda HTTP_PROXY, HTTPS_PROXY e NO_PROXY do ambiente atual"))
+	caCert := fs.String("ca-cert", "", i18n.T("certificado CA corporativo PEM instalado no contêiner isolado"))
+
+	profileName := fs.String("profile", "", i18n.T("carrega um perfil salvo de sessão (sem segredos)"))
+	saveProfileName := fs.String("save-profile", "", i18n.T("salva a configuração atual como perfil (sem segredos)"))
+	listProfiles := fs.Bool("list-profiles", false, i18n.T("lista os perfis salvos e encerra"))
+	deleteProfileName := fs.String("delete-profile", "", i18n.T("remove um perfil salvo e encerra"))
+	profilesFile := fs.String("profiles-file", "", i18n.T("arquivo alternativo de perfis (padrão: profiles.json do usuário)"))
+
+	sshConfigAlias := fs.String("ssh-config", "", i18n.T("importa host, usuário, porta, chave e ProxyJump de ~/.ssh/config"))
+	sshConfigFile := fs.String("ssh-config-file", "", i18n.T("caminho alternativo do arquivo ssh config"))
 	sshHost := fs.String("ssh-host", "", i18n.T("host SSH do destino (habilita a transferência SFTP)"))
 	sshPort := fs.Int("ssh-port", 22, i18n.T("porta SSH do destino"))
 	sshUser := fs.String("ssh-user", "", i18n.T("usuário SSH do destino"))
 	sshKey := fs.String("ssh-key", "", i18n.T("caminho da chave privada SSH"))
+	sshKeyPassphrase := fs.String("ssh-key-passphrase", "", i18n.T("passphrase da chave privada SSH (prefira OPF_SSH_KEY_PASSPHRASE)"))
+	sshAgent := fs.Bool("ssh-agent", false, i18n.T("autentica via ssh-agent (SSH_AUTH_SOCK ou OpenSSH Agent no Windows)"))
 	sshPassword := fs.String("ssh-password", "", i18n.T("senha SSH, também usada para sudo -S (prefira a variável OPF_SSH_PASSWORD)"))
 	sshKnownHosts := fs.String("ssh-known-hosts", "", i18n.T("caminho do known_hosts (padrão: ~/.ssh/known_hosts)"))
 	sshSkipHostKey := fs.Bool("ssh-insecure-skip-host-key", false, i18n.T("ignora a verificação de host key SSH (inseguro; equivale a StrictHostKeyChecking=no)"))
@@ -163,7 +183,7 @@ func run(args []string) error {
 		return nil
 	})
 	var jumpAuths []string
-	fs.Func("ssh-jump-auth", i18n.T("autenticação da ponte: password, key ou key+password; repetir na ordem de --ssh-jump"), func(value string) error {
+	fs.Func("ssh-jump-auth", i18n.T("autenticação da ponte: password, key, key+password ou agent; repetir na ordem de --ssh-jump"), func(value string) error {
 		jumpAuths = append(jumpAuths, value)
 		return nil
 	})
@@ -175,6 +195,11 @@ func run(args []string) error {
 	var jumpKeys []string
 	fs.Func("ssh-jump-key", i18n.T("caminho da chave privada da ponte; repetir na ordem de --ssh-jump"), func(value string) error {
 		jumpKeys = append(jumpKeys, value)
+		return nil
+	})
+	var jumpPassphrases []string
+	fs.Func("ssh-jump-passphrase", i18n.T("passphrase da chave da ponte (prefira OPF_SSH_JUMP_PASSPHRASES com array JSON)"), func(value string) error {
+		jumpPassphrases = append(jumpPassphrases, value)
 		return nil
 	})
 	var jumpKnownHosts []string
@@ -195,6 +220,8 @@ func run(args []string) error {
 	repoAPTFlat := fs.Bool("repo-apt-flat", false, i18n.T("repositório APT flat (sem suite/components)"))
 	repoInsecureTLS := fs.Bool("repo-insecure-tls", false, i18n.T("ignora a verificação TLS do repositório adicional (inseguro)"))
 	repoInsecureGPG := fs.Bool("repo-insecure-gpg", false, i18n.T("ignora a assinatura GPG do repositório adicional (inseguro)"))
+	repoAuthType := fs.String("repo-auth-type", "", i18n.T("autenticação efêmera do repositório adicional: basic ou bearer (credenciais via OPF_REPO_PASSWORD/OPF_REPO_TOKEN ou OPF_REPO_AUTH)"))
+	repoAuthUser := fs.String("repo-auth-user", "", i18n.T("usuário Basic Auth do repositório adicional"))
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -207,8 +234,158 @@ func run(args []string) error {
 		fmt.Printf("opf-cli %s (%s, %s)\n", info.Version, info.Commit, info.ReleaseDate)
 		return nil
 	}
+	if *listProfiles {
+		profiles, err := config.LoadProfiles(*profilesFile)
+		if err != nil {
+			return err
+		}
+		if len(profiles) == 0 {
+			fmt.Println(i18n.T("Nenhum perfil salvo."))
+			return nil
+		}
+		for _, p := range profiles {
+			targetLabel := p.TargetOS
+			if p.TargetVersion != "" {
+				targetLabel += ":" + p.TargetVersion
+			}
+			fmt.Printf("%s\t%s\t%s\t%s\n", p.Name, targetLabel, p.TargetArch, p.SSHHost)
+		}
+		return nil
+	}
+	if strings.TrimSpace(*deleteProfileName) != "" {
+		if err := config.DeleteProfile(*profilesFile, *deleteProfileName); err != nil {
+			return err
+		}
+		fmt.Println(i18n.T("perfil removido: %s", *deleteProfileName))
+		return nil
+	}
+
 	setFlags := make(map[string]bool)
 	fs.Visit(func(f *flag.Flag) { setFlags[f.Name] = true })
+
+	var profileRepos []core.PackageRepository
+	if strings.TrimSpace(*profileName) != "" {
+		prof, profErr := config.GetProfile(*profilesFile, *profileName)
+		if profErr != nil {
+			return profErr
+		}
+		if !setFlags["target"] && prof.TargetOS != "" && prof.TargetVersion != "" {
+			*target = prof.TargetOS + ":" + prof.TargetVersion
+		}
+		if !setFlags["arch"] && prof.TargetArch != "" {
+			*arch = prof.TargetArch
+		}
+		if !setFlags["fetch-method"] && prof.FetchMethod != "" {
+			*fetchMethod = prof.FetchMethod
+		}
+		if !setFlags["container-host"] && prof.ContainerHost != "" {
+			*containerHost = prof.ContainerHost
+		}
+		if !setFlags["image"] && prof.Image != "" {
+			*imageOverride = prof.Image
+		}
+		if !setFlags["wsl-distro"] && prof.WSLDistro != "" {
+			*wslDistro = prof.WSLDistro
+		}
+		if !setFlags["with-optional"] && prof.IncludeOptional {
+			*withOptional = true
+		}
+		if !setFlags["force-reinstall"] && prof.ForceReinstall {
+			*forceReinstall = true
+		}
+		if !setFlags["offline-bundle"] && prof.OfflineBundle {
+			*offlineBundle = "auto"
+		}
+		if !setFlags["ssh-host"] && prof.SSHHost != "" {
+			*sshHost = prof.SSHHost
+		}
+		if !setFlags["ssh-port"] && prof.SSHPort > 0 {
+			*sshPort = prof.SSHPort
+		}
+		if !setFlags["ssh-user"] && prof.SSHUser != "" {
+			*sshUser = prof.SSHUser
+		}
+		if !setFlags["ssh-key"] && prof.SSHKeyPath != "" {
+			*sshKey = prof.SSHKeyPath
+		}
+		if !setFlags["ssh-agent"] && prof.SSHUseAgent {
+			*sshAgent = true
+		}
+		if !setFlags["ssh-known-hosts"] && prof.SSHKnownHosts != "" {
+			*sshKnownHosts = prof.SSHKnownHosts
+		}
+		if !setFlags["remote-dir"] && prof.RemoteDir != "" {
+			*remoteDir = prof.RemoteDir
+		}
+		if len(jumpSpecs) == 0 && len(prof.SSHJumps) > 0 {
+			for _, j := range prof.SSHJumps {
+				spec := j.Host
+				if j.User != "" {
+					spec = j.User + "@" + spec
+				}
+				if j.Port > 0 && j.Port != 22 {
+					spec = net.JoinHostPort(j.Host, strconv.Itoa(j.Port))
+					if j.User != "" {
+						spec = j.User + "@" + spec
+					}
+				}
+				jumpSpecs = append(jumpSpecs, spec)
+				mode := j.AuthMode
+				if mode == "" {
+					mode = opfapp.SSHJumpAuthAgent
+				}
+				jumpAuths = append(jumpAuths, mode)
+				jumpKeys = append(jumpKeys, j.KeyPath)
+				jumpKnownHosts = append(jumpKnownHosts, j.KnownHosts)
+			}
+		}
+		if len(packages) == 0 && len(prof.Packages) > 0 {
+			packages = append(packages, prof.Packages...)
+		}
+		profileRepos = prof.Repositories
+	}
+
+	if strings.TrimSpace(*sshConfigAlias) != "" {
+		entry, cfgErr := transfer.ResolveSSHConfigAlias(*sshConfigFile, *sshConfigAlias)
+		if cfgErr != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ler ~/.ssh/config"), cfgErr)
+		}
+		if !setFlags["ssh-host"] && entry.Host != "" {
+			*sshHost = entry.Host
+		}
+		if !setFlags["ssh-port"] && entry.Port > 0 {
+			*sshPort = entry.Port
+		}
+		if !setFlags["ssh-user"] && entry.User != "" {
+			*sshUser = entry.User
+		}
+		if !setFlags["ssh-key"] && entry.KeyPath != "" {
+			*sshKey = entry.KeyPath
+		}
+		if !setFlags["ssh-known-hosts"] && entry.KnownHosts != "" {
+			*sshKnownHosts = entry.KnownHosts
+		}
+		if len(jumpSpecs) == 0 && len(entry.JumpHosts) > 0 {
+			for _, j := range entry.JumpHosts {
+				spec := j.Host
+				if j.Port > 0 && j.Port != 22 {
+					spec = net.JoinHostPort(j.Host, strconv.Itoa(j.Port))
+				}
+				if j.User != "" {
+					spec = j.User + "@" + spec
+				}
+				jumpSpecs = append(jumpSpecs, spec)
+				if j.KeyPath != "" {
+					jumpAuths = append(jumpAuths, opfapp.SSHJumpAuthKey)
+				} else {
+					jumpAuths = append(jumpAuths, opfapp.SSHJumpAuthAgent)
+				}
+				jumpKeys = append(jumpKeys, j.KeyPath)
+				jumpKnownHosts = append(jumpKnownHosts, j.KnownHosts)
+			}
+		}
+	}
+
 	if setFlags["resume"] && *resumeID <= 0 {
 		return errors.New(i18n.T("--resume exige um ID de sessão positivo"))
 	}
@@ -289,9 +466,9 @@ func run(args []string) error {
 	var sshPasswordValue string
 	if *sshHost == "" {
 		for _, name := range []string{
-			"ssh-port", "ssh-user", "ssh-key", "ssh-password",
+			"ssh-port", "ssh-user", "ssh-key", "ssh-key-passphrase", "ssh-agent", "ssh-password",
 			"ssh-known-hosts", "remote-dir", "ssh-jump", "ssh-insecure-skip-host-key",
-			"ssh-jump-auth", "ssh-jump-password", "ssh-jump-key", "ssh-jump-known-hosts",
+			"ssh-jump-auth", "ssh-jump-password", "ssh-jump-key", "ssh-jump-passphrase", "ssh-jump-known-hosts",
 		} {
 			if setFlags[name] {
 				return errors.New(i18n.T("--%s exige --ssh-host", name))
@@ -308,15 +485,20 @@ func run(args []string) error {
 		if password == "" {
 			password = os.Getenv("OPF_SSH_PASSWORD")
 		}
-		if *sshKey == "" && password == "" {
-			return errors.New(i18n.T("informe --ssh-key ou --ssh-password/OPF_SSH_PASSWORD"))
+		passphrase := *sshKeyPassphrase
+		if passphrase == "" {
+			passphrase = os.Getenv("OPF_SSH_KEY_PASSPHRASE")
+		}
+		if *sshKey == "" && password == "" && !*sshAgent {
+			return errors.New(i18n.T("informe --ssh-key, --ssh-agent ou --ssh-password/OPF_SSH_PASSWORD"))
 		}
 		if password != "" {
 			logger.Warn(i18n.T("autenticação SSH por senha habilitada; prefira chave privada"))
 		}
 		sshPasswordValue = password
 		sshConfig = core.SSHConfig{
-			Host: *sshHost, Port: *sshPort, User: *sshUser, KeyPath: *sshKey,
+			Host: *sshHost, Port: *sshPort, User: *sshUser,
+			KeyPath: *sshKey, KeyPassphrase: passphrase, UseAgent: *sshAgent,
 			Password: password, KnownHosts: *sshKnownHosts, InsecureSkipHostKey: *sshSkipHostKey,
 		}
 		envPasswords, envErr := decodeJumpPasswordsEnv(os.Getenv("OPF_SSH_JUMP_PASSWORDS"))
@@ -327,13 +509,24 @@ func run(args []string) error {
 		if mergeErr != nil {
 			return mergeErr
 		}
+		envPassphrases, ppEnvErr := decodeJumpPasswordsEnv(os.Getenv("OPF_SSH_JUMP_PASSPHRASES"))
+		if ppEnvErr != nil {
+			return errors.New(i18n.T("OPF_SSH_JUMP_PASSPHRASES deve ser um array JSON de strings"))
+		}
+		jumpPassphraseValues, ppMergeErr := mergeJumpPassphrases(jumpPassphrases, envPassphrases)
+		if ppMergeErr != nil {
+			return ppMergeErr
+		}
 		if err := validateJumpFlagCounts(jumpSpecs, jumpAuths, jumpPasswords, jumpKeys, jumpKnownHosts); err != nil {
 			return err
+		}
+		if len(jumpPassphraseValues) > 0 && len(jumpPassphraseValues) != len(jumpSpecs) {
+			return errors.New(i18n.T("OPF_SSH_JUMP_PASSPHRASES tem %d valores para %d pontes", len(jumpPassphraseValues), len(jumpSpecs)))
 		}
 		if len(envPasswords) > 0 && len(envPasswords) != len(jumpSpecs) {
 			return errors.New(i18n.T("OPF_SSH_JUMP_PASSWORDS tem %d valores para %d pontes", len(envPasswords), len(jumpSpecs)))
 		}
-		jumps, jumpErr := buildJumpConfigs(sshConfig, jumpSpecs, jumpAuths, jumpPasswordValues, jumpKeys, jumpKnownHosts)
+		jumps, jumpErr := buildJumpConfigsWithPassphrases(sshConfig, jumpSpecs, jumpAuths, jumpPasswordValues, jumpKeys, jumpPassphraseValues, jumpKnownHosts)
 		if jumpErr != nil {
 			return jumpErr
 		}
@@ -389,8 +582,8 @@ func run(args []string) error {
 		return errors.New(i18n.T("--target não suportado: %q", targetOS))
 	}
 	method := strings.ToLower(strings.TrimSpace(*fetchMethod))
-	if method != "docker" && method != "wsl" {
-		return errors.New(i18n.T("--fetch-method inválido: %q (use docker ou wsl)", *fetchMethod))
+	if method != "docker" && method != "podman" && method != "wsl" {
+		return errors.New(i18n.T("--fetch-method inválido: %q (use docker, podman ou wsl)", *fetchMethod))
 	}
 	if method == "wsl" {
 		if family != "apt" {
@@ -401,6 +594,11 @@ func run(args []string) error {
 		}
 	} else if strings.TrimSpace(*wslDistro) != "" {
 		return errors.New(i18n.T("--wsl-distro exige --fetch-method wsl"))
+	}
+
+	proxyCfg := buildProxyConfig(*httpProxy, *httpsProxy, *noProxy, *caCert, *inheritProxy)
+	if err := proxyCfg.Validate(false); err != nil {
+		return err
 	}
 
 	repositories, err := resolveRepositories(repositoryFlags{
@@ -416,9 +614,59 @@ func run(args []string) error {
 		aptFlat:       *repoAPTFlat,
 		insecureTLS:   *repoInsecureTLS,
 		insecureGPG:   *repoInsecureGPG,
+		authType:      *repoAuthType,
+		authUser:      *repoAuthUser,
 	}, family, setFlags)
 	if err != nil {
 		return err
+	}
+	if len(repositories) == 0 && len(profileRepos) > 0 {
+		repositories = profileRepos
+	}
+	repositories, err = applyRepoAuthEnv(repositories, os.Getenv("OPF_REPO_AUTH"))
+	if err != nil {
+		return err
+	}
+	if len(repositories) > 0 {
+		repositories, err = core.NormalizePackageRepositories(repositories, family)
+		if err != nil {
+			return err
+		}
+	}
+
+	if strings.TrimSpace(*saveProfileName) != "" {
+		prof := config.Profile{
+			Name:            *saveProfileName,
+			TargetOS:        targetOS,
+			TargetVersion:   targetVersion,
+			TargetArch:      strings.ToLower(*arch),
+			FetchMethod:     method,
+			ContainerHost:   strings.TrimSpace(*containerHost),
+			Image:           strings.TrimSpace(*imageOverride),
+			WSLDistro:       strings.TrimSpace(*wslDistro),
+			IncludeOptional: *withOptional,
+			ForceReinstall:  *forceReinstall,
+			OfflineBundle:   strings.TrimSpace(*offlineBundle) != "",
+			SSHHost:         sshConfig.Host,
+			SSHPort:         sshConfig.Port,
+			SSHUser:         sshConfig.User,
+			SSHKeyPath:      sshConfig.KeyPath,
+			SSHUseAgent:     sshConfig.UseAgent,
+			SSHKnownHosts:   sshConfig.KnownHosts,
+			RemoteDir:       strings.TrimSpace(*remoteDir),
+			Repositories:    repositories,
+			Packages:        packages,
+		}
+		for _, jm := range opfapp.SSHJumpMetadataFromConfigs(sshConfig.JumpHosts) {
+			prof.SSHJumps = append(prof.SSHJumps, config.ProfileJump{
+				Host: jm.Host, Port: jm.Port, User: jm.User,
+				AuthMode: jm.AuthMode, KeyPath: jm.KeyPath, KnownHosts: jm.KnownHosts,
+			})
+		}
+		if err := config.UpsertProfile(*profilesFile, prof); err != nil {
+			return err
+		}
+		fmt.Println(i18n.T("perfil salvo: %s", prof.Name))
 	}
 
 	if *useSudo && sshPasswordValue == "" {
@@ -432,32 +680,35 @@ func run(args []string) error {
 	}
 
 	svc, err := opfapp.New(opfapp.Config{
-		StorePath:       *dbPath,
-		OutputBaseDir:   *outDir,
-		TempDir:         *tempDir,
-		TargetOS:        targetOS,
-		TargetVersion:   targetVersion,
-		TargetArch:      strings.ToLower(*arch),
-		Packages:        packages,
-		IncludeOptional: *withOptional,
-		FetchMethod:     method,
-		Image:           strings.TrimSpace(*imageOverride),
-		WSLDistro:       *wslDistro,
-		SSH:             sshConfig,
-		RemoteDir:       *remoteDir,
-		Repositories:    repositories,
-		ForceReinstall:  *forceReinstall,
-		VersionReport:   reportMode,
-		Logger:          logger,
-		Install:         *installAfter,
-		UseSudo:         *useSudo,
-		SudoPassword:    sshPasswordValue,
-		ConfirmInstall:  confirmInstall,
-		SyslogEnabled:   *syslogEnabled,
-		SyslogHost:      *syslogHost,
-		SyslogPort:      *syslogPort,
-		SyslogProto:     *syslogProto,
-		SyslogTag:       *syslogTag,
+		StorePath:         *dbPath,
+		OutputBaseDir:     *outDir,
+		TempDir:           *tempDir,
+		TargetOS:          targetOS,
+		TargetVersion:     targetVersion,
+		TargetArch:        strings.ToLower(*arch),
+		Packages:          packages,
+		IncludeOptional:   *withOptional,
+		FetchMethod:       method,
+		ContainerHost:     strings.TrimSpace(*containerHost),
+		Image:             strings.TrimSpace(*imageOverride),
+		WSLDistro:         *wslDistro,
+		Proxy:             proxyCfg,
+		OfflineBundlePath: strings.TrimSpace(*offlineBundle),
+		SSH:               sshConfig,
+		RemoteDir:         *remoteDir,
+		Repositories:      repositories,
+		ForceReinstall:    *forceReinstall,
+		VersionReport:     reportMode,
+		Logger:            logger,
+		Install:           *installAfter,
+		UseSudo:           *useSudo,
+		SudoPassword:      sshPasswordValue,
+		ConfirmInstall:    confirmInstall,
+		SyslogEnabled:     *syslogEnabled,
+		SyslogHost:        *syslogHost,
+		SyslogPort:        *syslogPort,
+		SyslogProto:       *syslogProto,
+		SyslogTag:         *syslogTag,
 	})
 	if err != nil {
 		return err
@@ -510,6 +761,9 @@ func run(args []string) error {
 	fmt.Printf("%s\n", i18n.T("artefatos: %d", len(result.Artifacts)))
 	fmt.Printf("%s\n", i18n.T("saída: %s", result.OutputDir))
 	fmt.Printf("%s\n", i18n.T("manifesto: %s", result.CaminhoManifesto))
+	if result.OfflineBundlePath != "" {
+		fmt.Printf("%s\n", i18n.T("bundle offline: %s", result.OfflineBundlePath))
+	}
 	if result.RemoteDir != "" {
 		fmt.Printf("%s\n", i18n.T("destino remoto: %s", result.RemoteDir))
 	}
@@ -556,13 +810,15 @@ type repositoryFlags struct {
 	aptFlat       bool
 	insecureTLS   bool
 	insecureGPG   bool
+	authType      string
+	authUser      string
 }
 
 func (f repositoryFlags) simpleSet(setFlags map[string]bool) bool {
 	for _, name := range []string{
 		"repo-url", "repo-name", "repo-family", "repo-key", "repo-key-url",
 		"repo-ca", "repo-apt-suite", "repo-apt-components", "repo-apt-flat",
-		"repo-insecure-tls", "repo-insecure-gpg",
+		"repo-insecure-tls", "repo-insecure-gpg", "repo-auth-type", "repo-auth-user",
 	} {
 		if setFlags[name] {
 			return true
@@ -615,6 +871,10 @@ func resolveRepositories(flags repositoryFlags, targetFamily string, setFlags ma
 		CAFile:                flags.ca,
 		InsecureSkipTLSVerify: flags.insecureTLS,
 		InsecureSkipGPGCheck:  flags.insecureGPG,
+		AuthType:              flags.authType,
+		AuthUsername:          flags.authUser,
+		AuthPassword:          os.Getenv("OPF_REPO_PASSWORD"),
+		AuthToken:             os.Getenv("OPF_REPO_TOKEN"),
 	}
 	if effectiveFamily == core.RepositoryFamilyAPT {
 		if flags.aptFlat && setFlags["repo-apt-components"] {
@@ -685,6 +945,10 @@ func parseJumpHost(spec string, base core.SSHConfig, auth, password, keyPath, kn
 }
 
 func buildJumpConfigs(base core.SSHConfig, specs, auths, passwords, keys, knownHosts []string) ([]core.SSHConfig, error) {
+	return buildJumpConfigsWithPassphrases(base, specs, auths, passwords, keys, nil, knownHosts)
+}
+
+func buildJumpConfigsWithPassphrases(base core.SSHConfig, specs, auths, passwords, keys, passphrases, knownHosts []string) ([]core.SSHConfig, error) {
 	if len(specs) == 0 {
 		return nil, nil
 	}
@@ -695,13 +959,14 @@ func buildJumpConfigs(base core.SSHConfig, specs, auths, passwords, keys, knownH
 			return nil, fmt.Errorf("%s: %w", i18n.T("--ssh-jump %d", i+1), err)
 		}
 		inputs = append(inputs, opfapp.SSHJumpInput{
-			Host:       host,
-			Port:       port,
-			User:       user,
-			AuthMode:   jumpValueAt(auths, i),
-			Password:   jumpValueAt(passwords, i),
-			KeyPath:    jumpValueAt(keys, i),
-			KnownHosts: jumpValueAt(knownHosts, i),
+			Host:          host,
+			Port:          port,
+			User:          user,
+			AuthMode:      jumpValueAt(auths, i),
+			Password:      jumpValueAt(passwords, i),
+			KeyPath:       jumpValueAt(keys, i),
+			KeyPassphrase: jumpValueAt(passphrases, i),
+			KnownHosts:    jumpValueAt(knownHosts, i),
 		})
 	}
 	return opfapp.BuildSSHJumpHosts(base, inputs)
@@ -809,6 +1074,79 @@ func mergeJumpPasswords(flagValues, envValues []string) ([]string, error) {
 		return envValues, nil
 	}
 	return flagValues, nil
+}
+
+func mergeJumpPassphrases(flagValues, envValues []string) ([]string, error) {
+	if len(flagValues) > 0 && len(envValues) > 0 {
+		return nil, errors.New(i18n.T("use --ssh-jump-passphrase ou OPF_SSH_JUMP_PASSPHRASES, não ambos"))
+	}
+	if len(envValues) > 0 {
+		return envValues, nil
+	}
+	return flagValues, nil
+}
+
+func buildProxyConfig(httpProxy, httpsProxy, noProxy, caCert string, inherit bool) core.ProxyConfig {
+	cfg := core.ProxyConfig{
+		HTTPProxy:  strings.TrimSpace(httpProxy),
+		HTTPSProxy: strings.TrimSpace(httpsProxy),
+		NoProxy:    strings.TrimSpace(noProxy),
+		CACertFile: strings.TrimSpace(caCert),
+	}
+	if inherit {
+		if cfg.HTTPProxy == "" {
+			cfg.HTTPProxy = firstNonEmptyEnv("HTTP_PROXY", "http_proxy")
+		}
+		if cfg.HTTPSProxy == "" {
+			cfg.HTTPSProxy = firstNonEmptyEnv("HTTPS_PROXY", "https_proxy")
+		}
+		if cfg.NoProxy == "" {
+			cfg.NoProxy = firstNonEmptyEnv("NO_PROXY", "no_proxy")
+		}
+	}
+	return cfg
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+type repoAuthEntry struct {
+	Type     string `json:"type"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Token    string `json:"token"`
+}
+
+func applyRepoAuthEnv(repos []core.PackageRepository, raw string) ([]core.PackageRepository, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(repos) == 0 {
+		return repos, nil
+	}
+	var entries map[string]repoAuthEntry
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		return nil, errors.New(i18n.T("OPF_REPO_AUTH deve ser um objeto JSON mapeando nome do repositório para credenciais"))
+	}
+	out := append([]core.PackageRepository(nil), repos...)
+	for i := range out {
+		auth, ok := entries[out[i].Name]
+		if !ok {
+			auth, ok = entries[core.RepositorySlug(out[i].Name)]
+		}
+		if !ok {
+			continue
+		}
+		out[i].AuthType = auth.Type
+		out[i].AuthUsername = auth.Username
+		out[i].AuthPassword = auth.Password
+		out[i].AuthToken = auth.Token
+	}
+	return out, nil
 }
 
 func jumpValueAt(values []string, index int) string {

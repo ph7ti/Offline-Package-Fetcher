@@ -104,7 +104,7 @@ func TestSSHJumpRequiresCredentials(t *testing.T) {
 		Host: "destino", Port: 22, User: "opf", KeyPath: "/tmp/dummy-key",
 		JumpHosts: []core.SSHConfig{{Host: "bridge", Port: 22, User: "bridge"}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "sem chave nem senha SSH") {
+	if err == nil || !strings.Contains(err.Error(), "sem chave, ssh-agent nem senha SSH") {
 		t.Fatalf("error = %v", err)
 	}
 }
