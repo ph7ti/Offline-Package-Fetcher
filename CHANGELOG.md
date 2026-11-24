@@ -4,6 +4,31 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-11-23
+
+Offline installation hardening, performance improvements and CLI unification.
+
+### Added
+
+- **CLI** flags `--version` (prints version and build metadata), `--pkg-file <path>` (loads package lists from a text file with `#` comments and comma/newline separators) and `--resume <session-id>` (resumes an existing session directly from SQLite).
+- Live output streaming during remote installation even when using `sudo -S` (`RunCommandStreamWithInput`).
+- `go test -race` verification step on Linux in CI (`.github/workflows/ci.yml`).
+
+### Performance
+
+- **Package diff → Proceed** now keeps the isolated environment (Docker/WSL) and SSH connection warm across preview and execution, eliminating duplicate container startup and SSH handshakes (with a safety TTL and guaranteed cleanup on abort, error or close).
+- `DockerFetcher` copies all verified session artifacts from the isolated container in a single validated tar stream (`CopyArchiveFromContainer`) with tar-slip/symlink protection and per-file size limits.
+- `SSHTransferManager.Upload` transfers files concurrently over SFTP using a bounded worker pool (up to 4 workers) with thread-safe progress tracking.
+- `AptResolver` runs `apt-get update` once per isolated environment instead of once per root package.
+
+### Fixed
+
+- Remote installers now pass explicit offline flags so air-gapped targets do not attempt network metadata refreshes: `--disablerepo='*'` for `yum`/`dnf`, `--no-network` for `apk`, and `--no-download` for `apt-get install -f`.
+- Unified `opf-cli` over `internal/app.Service`, fixing `--temp-dir` being ignored with `--fetch-method docker` and ensuring Package diff approval decisions are persisted consistently.
+- Decoupled pipeline steps 4 (*resolve dependencies*) and 5 (*download packages*) via `StageObserver`, so step progress and failure attribution accurately reflect the active stage.
+- Aligned `CompareVersions` non-digit ordering with dpkg `verrevcmp` semantics and localized the `ParseVersionReportMode` error message.
+- Deduplicated artifact filename validation and shell quoting across APT, YUM/DNF and APK installers.
+
 ## [0.3.0] - 2026-11-23
 
 Package diff and installed-version reports.

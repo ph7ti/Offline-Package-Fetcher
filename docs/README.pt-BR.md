@@ -13,7 +13,7 @@
 
 **Baixe pacotes Linux e o conjunto completo de dependências para ambientes isolados — e, quando fizer sentido, transfira por SSH/SFTP e instale no destino.**
 
-Versão **0.3.0** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
+Versão **0.3.1** · Licença **GPL-3.0** · Go **1.27.4** · Linux, Windows e macOS (secundário)
 
 ---
 
@@ -85,7 +85,7 @@ Métodos de fetch:
 
 Arquiteturas reconhecidas: `amd64`/`x86_64`, `arm64`/`aarch64`, `armhf`/`armv7l` e `i386`/`i686` (normalizadas por família: `amd64` no APT, `x86_64` no RPM, entre outras).
 
-Limites conhecidos da v0.3.0:
+Limites conhecidos da v0.3.1:
 
 - **macOS** é plataforma secundária e requer Docker para baixar pacotes.
 - **WSL** atende apenas Ubuntu/Debian (APT); famílias RPM/APK exigem Docker.
@@ -158,7 +158,7 @@ As releases publicam **somente instaladores** — sem binários soltos de CLI/TU
 
 Cada release publica **9 ativos**: os oito instaladores acima e `SHA256SUMS`.
 
-1. Abra [a página da release v0.3.0](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.3.0).
+1. Abra [a página da release v0.3.1](https://github.com/ph7ti/Offline-Package-Fetcher/releases/tag/v0.3.1).
 2. Baixe o instalador da sua plataforma e o `SHA256SUMS`.
 3. Verifique:
 
@@ -420,6 +420,6 @@ O OPF foi desenvolvido com **apoio intensivo de ferramentas de IA** — geraçã
 
 ## Versão
 
-**Versão 0.3.0** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
+**Versão 0.3.1** — release atual. Consulte o [changelog](../CHANGELOG.md), o [manual do usuário](MANUAL.pt-BR.md) e o [documento técnico](project-description.pt-BR.md).
 
 [English](../README.md) | **Português (BR)**
