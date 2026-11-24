@@ -1,7 +1,7 @@
 param(
     [ValidateSet('amd64','arm64')][string]$Arch = 'amd64',
     [string]$PayloadRoot = 'dist\installer-payload',
-    [string]$Version = '0.4.0',
+    [string]$Version = '0.4.1',
     [string]$OutDir = 'dist\installers'
 )
 
@@ -45,7 +45,7 @@ if ($Arch -eq 'amd64' -and $env:OPF_TEST_INSTALLER -eq '1') {
     }
     $uninstall = Join-Path $target 'unins000.exe'
     if (Test-Path $uninstall) {
-        $u = Start-Process -FilePath $uninstall -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+        $u = Start-Process -FilePath $uninstall -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/REMOVEDATA') -Wait -PassThru
         if ($u.ExitCode -ne 0) { throw "full uninstaller test failed: $($u.ExitCode)" }
     }
     for ($i = 0; $i -lt 30 -and (Test-Path $target); $i++) { Start-Sleep -Milliseconds 200 }

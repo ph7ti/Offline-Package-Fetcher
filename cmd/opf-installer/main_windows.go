@@ -22,9 +22,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+
+	"opf/internal/store"
 )
 
 var version = "dev"
@@ -304,18 +307,36 @@ func localDataDir() string {
 	return dir
 }
 
-func createDatabase() (string, error) {
+func removeDatabaseFiles(db string) {
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		_ = os.Remove(db + suffix) // #nosec G703 -- per-user OPF database path under %LOCALAPPDATA%\OPF\data
+	}
+}
+
+func createDatabase(reset bool) (string, error) {
 	dir := filepath.Join(localDataDir(), "OPF", "data")
-	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G703 -- explicit user-selected installation folder // #nosec G703 -- per-user fixed path
+	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G703 -- per-user fixed path
 		return "", err
 	}
 	db := filepath.Join(dir, "opf.db")
-	f, err := os.OpenFile(db, os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return "", err
+	if reset {
+		removeDatabaseFiles(db)
 	}
-	if err := f.Close(); err != nil {
-		return "", err
+	st, err := store.Open(db)
+	if err != nil {
+		// If an existing database from a previous install cannot be migrated,
+		// back it up and recreate a clean schema so upgrades never get stuck.
+		backup := fmt.Sprintf("%s.bak-%d", db, time.Now().UTC().Unix())
+		_ = os.Rename(db, backup) // #nosec G703 -- per-user OPF database backup
+		removeDatabaseFiles(db)
+		st, err = store.Open(db)
+		if err != nil {
+			return db, err
+		}
+		fmt.Printf("        Existing database backed up to %s and recreated.\n", backup)
+	}
+	if err := st.Close(); err != nil {
+		return db, err
 	}
 	return db, nil
 }
@@ -362,13 +383,14 @@ func main() {
 	silent := false
 	noShortcut := false
 	noLaunch := false
+	resetDB := false
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--help", "-h":
 			fmt.Printf("OPF installer %s (Windows)\n\n", version)
 			fmt.Println("Usage: opf-installer.exe [--profile bundle|gui|tui|cli] [--dir PATH]")
-			fmt.Println("       [--silent] [--no-shortcut] [--no-launch] [--elevated]")
+			fmt.Println("       [--silent] [--no-shortcut] [--no-launch] [--reset-db] [--elevated]")
 			return
 		case "--silent":
 			silent = true
@@ -376,6 +398,8 @@ func main() {
 			noShortcut = true
 		case "--no-launch":
 			noLaunch = true
+		case "--reset-db":
+			resetDB = true
 		case "--elevated":
 			// Internal flag used after UAC elevation.
 		case "--profile":
@@ -505,10 +529,10 @@ func main() {
 	} else {
 		fmt.Println("        Added to PATH.")
 	}
-	fmt.Println("  [3/4] Creating the local database")
-	dbPath, err := createDatabase()
+	fmt.Println("  [3/4] Initializing/migrating the local database")
+	dbPath, err := createDatabase(resetDB)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  Warning: could not create %s: %v\n", dbPath, err)
+		fmt.Fprintf(os.Stderr, "  Warning: could not initialize %s: %v\n", dbPath, err)
 	}
 	m := installManifest{
 		Version:      version,

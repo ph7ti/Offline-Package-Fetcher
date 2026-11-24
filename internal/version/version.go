@@ -9,9 +9,9 @@ import (
 // These values are the release defaults. Release builds may override them with
 // -ldflags "-X opf/internal/version.Version=... -X opf/internal/version.Commit=...".
 var (
-	Version     = "0.4.0"
+	Version     = "0.4.1"
 	Commit      = ""
-	ReleaseDate = "2026-11-23"
+	ReleaseDate = "2026-11-24"
 )
 
 // Info is a snapshot of the build metadata shown in the About dialog.

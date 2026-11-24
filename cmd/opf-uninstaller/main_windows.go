@@ -174,10 +174,85 @@ func loadManifest(exeDir string) (manifest, error) {
 	return m, nil
 }
 
+func defaultDatabasePath() string {
+	base := os.Getenv("LOCALAPPDATA")
+	if base == "" {
+		if dir, err := os.UserCacheDir(); err == nil {
+			base = dir
+		}
+	}
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, "OPF", "data", "opf.db")
+}
+
+func configuredDatabasePath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil || dir == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "opf", "config.json")) // #nosec G703 -- per-user OPF config file
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		DatabasePath string `json:"database_path"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.DatabasePath)
+}
+
+func collectDatabasePaths(manifestDB string) []string {
+	seen := make(map[string]struct{})
+	var paths []string
+	for _, candidate := range []string{strings.TrimSpace(manifestDB), defaultDatabasePath(), configuredDatabasePath()} {
+		if candidate == "" {
+			continue
+		}
+		cleaned := filepath.Clean(candidate)
+		key := strings.ToLower(cleaned)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		paths = append(paths, cleaned)
+	}
+	return paths
+}
+
+func removeDatabaseWithSidecars(dbPath string) bool {
+	removedAny := false
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		target := dbPath + suffix
+		var err error
+		for attempt := 0; attempt < 15; attempt++ {
+			err = os.Remove(target) // #nosec G703 -- OPF database and SQLite WAL/SHM sidecars
+			if err == nil || os.IsNotExist(err) {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err == nil {
+			removedAny = true
+		}
+	}
+	if removedAny {
+		fmt.Printf("  removed database %s\n", dbPath)
+	}
+	dataDir := filepath.Dir(dbPath)
+	_ = os.Remove(dataDir)               // #nosec G703 -- remove empty OPF data directory
+	_ = os.Remove(filepath.Dir(dataDir)) // #nosec G703 -- remove empty parent OPF directory
+	return removedAny
+}
+
 func fallbackManifest(exeDir string) manifest {
 	return manifest{
-		InstallDir: exeDir,
-		Files:      []string{"opf-gui.exe", "opf-tui.exe", "opf-cli.exe", "uninstall-opf.exe"},
+		InstallDir:   exeDir,
+		DatabasePath: defaultDatabasePath(),
+		Files:        []string{"opf-gui.exe", "opf-tui.exe", "opf-cli.exe", "uninstall-opf.exe"},
 	}
 }
 
@@ -275,7 +350,7 @@ func run() int {
 			return 0
 		}
 		if !removeData {
-			removeData = confirm("Also remove the local database and history?", false)
+			removeData = confirm("Also remove the local database and history?", true)
 		}
 	}
 
@@ -311,12 +386,10 @@ func run() int {
 	}
 	_ = removeUserPath(m.InstallDir)
 	removeARP()
-	if removeData && m.DatabasePath != "" {
-		if err := os.Remove(m.DatabasePath); err == nil { // #nosec G703 -- database path recorded by the installer
-			fmt.Printf("  removed database %s\n", m.DatabasePath)
+	if removeData {
+		for _, dbPath := range collectDatabasePaths(m.DatabasePath) {
+			removeDatabaseWithSidecars(dbPath)
 		}
-		_ = os.Remove(filepath.Dir(m.DatabasePath))               // #nosec G703 -- parent of the recorded database
-		_ = os.Remove(filepath.Dir(filepath.Dir(m.DatabasePath))) // #nosec G703 -- OPF data directory
 	}
 	_ = os.Remove(filepath.Join(m.InstallDir, "install.json")) // #nosec G703 -- install directory selected by the user
 	_ = os.Remove(m.InstallDir)                                // #nosec G703 -- installation directory selected by the user

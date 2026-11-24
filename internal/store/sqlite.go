@@ -152,6 +152,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := store.repairBrokenSessoesReferences(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := store.migratePacotesStatus(ctx); err != nil {
 		db.Close()
 		return nil, err
@@ -180,6 +184,10 @@ func Open(path string) (*Store, error) {
 	}); err != nil {
 		db.Close()
 		return nil, err
+	}
+	if _, err := db.ExecContext(ctx, "PRAGMA user_version = 4"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("atualizar user_version SQLite: %w", err)
 	}
 
 	return store, nil
@@ -266,11 +274,15 @@ func (s *Store) migrateSessoesFetchMethod(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 
+	// Follow SQLite's recommended 12-step table rebuild: create sessoes_new,
+	// copy data from sessoes, drop sessoes (with foreign_keys OFF), then rename
+	// sessoes_new -> sessoes. Renaming sessoes -> sessoes_old would cause modern
+	// SQLite (>=3.26) to rewrite child table foreign keys to REFERENCES sessoes_old!
+	sessoesNewTable := strings.Replace(sessoesTable, "CREATE TABLE IF NOT EXISTS sessoes", "CREATE TABLE sessoes_new", 1)
 	statements := []string{
-		"DROP TABLE IF EXISTS sessoes_old",
-		"ALTER TABLE sessoes RENAME TO sessoes_old",
-		sessoesTable,
-		`INSERT INTO sessoes (
+		"DROP TABLE IF EXISTS sessoes_new",
+		sessoesNewTable,
+		`INSERT INTO sessoes_new (
 			id, iniciada_em, finalizada_em, so_destino, versao_destino, arch_destino,
 			metodo_fetch, host_destino, include_optional, status, etapa_atual,
 			output_dir, remote_dir, imagem_docker, wsl_distro, ambiente_id,
@@ -280,8 +292,9 @@ func (s *Store) migrateSessoesFetchMethod(ctx context.Context) error {
 			metodo_fetch, host_destino, include_optional, status, etapa_atual,
 			output_dir, remote_dir, imagem_docker, wsl_distro, ambiente_id,
 			config_json, host_info_json, preview_json, arquivada
-		FROM sessoes_old`,
-		"DROP TABLE sessoes_old",
+		FROM sessoes`,
+		"DROP TABLE sessoes",
+		"ALTER TABLE sessoes_new RENAME TO sessoes",
 	}
 	for _, stmt := range statements {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
@@ -290,6 +303,115 @@ func (s *Store) migrateSessoesFetchMethod(ctx context.Context) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("confirmar migração de sessoes: %w", err)
+	}
+	return nil
+}
+
+// repairBrokenSessoesReferences fixes databases that were migrated by v0.4.0
+// where ALTER TABLE sessoes RENAME TO sessoes_old rewrote child table foreign
+// keys to reference "sessoes_old"(id). It rebuilds affected child tables while
+// preserving all existing rows.
+func (s *Store) repairBrokenSessoesReferences(ctx context.Context) error {
+	type childTable struct {
+		name      string
+		createDDL string
+		indexDDL  string
+		columns   string
+	}
+	tables := []childTable{
+		{
+			name:      "pacotes",
+			createDDL: pacotesTable,
+			indexDDL:  "CREATE INDEX IF NOT EXISTS idx_pacotes_sessao ON pacotes(sessao_id)",
+			columns:   "id, sessao_id, nome, versao, arquitetura, status, eh_dependencia, caminho_local, sha256, sha256_p1, sha256_p2, versao_anterior, p3_verificado, instalado_verificado",
+		},
+		{
+			name:      "eventos",
+			createDDL: eventosTable,
+			indexDDL:  "CREATE INDEX IF NOT EXISTS idx_eventos_sessao ON eventos(sessao_id)",
+			columns:   "id, sessao_id, timestamp, tipo, mensagem, detalhes",
+		},
+		{
+			name:      "etapas_sessao",
+			createDDL: etapasTable,
+			indexDDL:  "CREATE INDEX IF NOT EXISTS idx_etapas_sessao ON etapas_sessao(sessao_id)",
+			columns:   "sessao_id, etapa, nome, status, iniciada_em, finalizada_em, erro",
+		},
+		{
+			name:      "pacotes_solicitados",
+			createDDL: pacotesSolicitadosTable,
+			indexDDL:  "CREATE INDEX IF NOT EXISTS idx_solicitados_sessao ON pacotes_solicitados(sessao_id)",
+			columns:   "id, sessao_id, nome, status, motivo",
+		},
+	}
+
+	var broken []childTable
+	for _, tbl := range tables {
+		var ddl string
+		err := s.db.QueryRowContext(ctx,
+			"SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", tbl.name,
+		).Scan(&ddl)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspecionar foreign keys de %s: %w", tbl.name, err)
+		}
+		if strings.Contains(strings.ToLower(ddl), "sessoes_old") {
+			broken = append(broken, tbl)
+		}
+	}
+	if len(broken) == 0 {
+		return nil
+	}
+
+	// Ensure modern columns exist on pacotes before copying if it is broken.
+	for _, tbl := range broken {
+		if tbl.name == "pacotes" {
+			if err := s.ensureColumns(ctx, "pacotes", map[string]string{
+				"sha256_p1":            "TEXT",
+				"sha256_p2":            "TEXT",
+				"versao_anterior":      "TEXT",
+				"p3_verificado":        "INTEGER NOT NULL DEFAULT 0",
+				"instalado_verificado": "INTEGER NOT NULL DEFAULT 0",
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("desabilitar foreign_keys no reparo: %w", err)
+	}
+	defer func() {
+		_, _ = s.db.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
+	}()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("iniciar reparo de foreign keys: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, tbl := range broken {
+		tmpName := tbl.name + "_repair_new"
+		createTmp := strings.Replace(tbl.createDDL, "CREATE TABLE IF NOT EXISTS "+tbl.name, "CREATE TABLE "+tmpName, 1)
+		stmts := []string{
+			"DROP TABLE IF EXISTS " + tmpName,
+			createTmp,
+			fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM %s", tmpName, tbl.columns, tbl.columns, tbl.name),
+			"DROP TABLE " + tbl.name,
+			fmt.Sprintf("ALTER TABLE %s RENAME TO %s", tmpName, tbl.name),
+			tbl.indexDDL,
+		}
+		for _, stmt := range stmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("reparar tabela %s: %w", tbl.name, err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("confirmar reparo de foreign keys: %w", err)
 	}
 	return nil
 }
@@ -309,25 +431,45 @@ func (s *Store) migratePacotesStatus(ctx context.Context) error {
 		return nil
 	}
 
+	if err := s.ensureColumns(ctx, "pacotes", map[string]string{
+		"sha256_p1":            "TEXT",
+		"sha256_p2":            "TEXT",
+		"versao_anterior":      "TEXT",
+		"p3_verificado":        "INTEGER NOT NULL DEFAULT 0",
+		"instalado_verificado": "INTEGER NOT NULL DEFAULT 0",
+	}); err != nil {
+		return err
+	}
+
+	if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("desabilitar foreign_keys na migração de pacotes: %w", err)
+	}
+	defer func() {
+		_, _ = s.db.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
+	}()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("iniciar migração de pacotes: %w", err)
 	}
 	defer tx.Rollback()
 
+	pacotesNewTable := strings.Replace(pacotesTable, "CREATE TABLE IF NOT EXISTS pacotes", "CREATE TABLE pacotes_new", 1)
 	statements := []string{
 		"DROP INDEX IF EXISTS idx_pacotes_sessao",
-		"DROP TABLE IF EXISTS pacotes_old",
-		"ALTER TABLE pacotes RENAME TO pacotes_old",
-		pacotesTable,
-		`INSERT INTO pacotes (
+		"DROP TABLE IF EXISTS pacotes_new",
+		pacotesNewTable,
+		`INSERT INTO pacotes_new (
 			id, sessao_id, nome, versao, arquitetura, status,
-			eh_dependencia, caminho_local, sha256
+			eh_dependencia, caminho_local, sha256, sha256_p1, sha256_p2,
+			versao_anterior, p3_verificado, instalado_verificado
 		) SELECT
 			id, sessao_id, nome, versao, arquitetura, status,
-			eh_dependencia, caminho_local, sha256
-		FROM pacotes_old`,
-		"DROP TABLE pacotes_old",
+			eh_dependencia, caminho_local, sha256, sha256_p1, sha256_p2,
+			versao_anterior, p3_verificado, instalado_verificado
+		FROM pacotes`,
+		"DROP TABLE pacotes",
+		"ALTER TABLE pacotes_new RENAME TO pacotes",
 		"CREATE INDEX IF NOT EXISTS idx_pacotes_sessao ON pacotes(sessao_id)",
 	}
 	for _, statement := range statements {

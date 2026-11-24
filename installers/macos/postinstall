@@ -15,8 +15,13 @@ fi
 
 dir="${home}/Library/Application Support/OPF/data"
 mkdir -p "$dir"
-: >>"${dir}/opf.db"
 chown -R "${user}" "${dir}"
 chmod 700 "$dir"
-chmod 600 "${dir}/opf.db"
+if [ -x /usr/local/bin/opf-cli ]; then
+    su - "${user}" -c "'/usr/local/bin/opf-cli' --init-db --db '${dir}/opf.db'" >/dev/null 2>&1 || : >>"${dir}/opf.db"
+else
+    : >>"${dir}/opf.db"
+fi
+chown "${user}" "${dir}/opf.db"* 2>/dev/null || true
+chmod 600 "${dir}/opf.db" 2>/dev/null || true
 exit 0

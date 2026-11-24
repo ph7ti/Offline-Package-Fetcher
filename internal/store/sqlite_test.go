@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -378,18 +379,35 @@ CREATE TABLE IF NOT EXISTS sessoes (
     host_destino    TEXT,
     status          TEXT NOT NULL CHECK (status IN ('em_andamento','concluida','falhou','abortada'))
 );`
-	if _, err := raw.Exec(legacySessoes + pacotesTable + eventosTable); err != nil {
+	if _, err := raw.Exec(legacySessoes + pacotesTable + eventosTable + etapasTable + pacotesSolicitadosTable); err != nil {
 		raw.Close()
 		t.Fatalf("criar schema legado: %v", err)
 	}
+	now := formatTime(time.Now().UTC())
 	if _, err := raw.Exec(`INSERT INTO sessoes (
 		id, iniciada_em, so_destino, versao_destino, arch_destino,
 		metodo_fetch, include_optional, status
 	) VALUES (1, ?, 'ubuntu', '22.04', 'amd64', 'docker', 0, 'concluida')`,
-		formatTime(time.Now().UTC()),
+		now,
 	); err != nil {
 		raw.Close()
 		t.Fatalf("inserir sessão legada: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO pacotes (id, sessao_id, nome, versao, status) VALUES (1, 1, 'vim', '9.0', 'instalado')`); err != nil {
+		raw.Close()
+		t.Fatalf("inserir pacote legado: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO eventos (id, sessao_id, timestamp, tipo, mensagem) VALUES (1, 1, ?, 'download', 'ok')`, now); err != nil {
+		raw.Close()
+		t.Fatalf("inserir evento legado: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO etapas_sessao (sessao_id, etapa, nome, status) VALUES (1, 1, 'init', 'concluida')`); err != nil {
+		raw.Close()
+		t.Fatalf("inserir etapa legada: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO pacotes_solicitados (id, sessao_id, nome, status) VALUES (1, 1, 'vim', 'instalado')`); err != nil {
+		raw.Close()
+		t.Fatalf("inserir solicitado legado: %v", err)
 	}
 	_ = raw.Close()
 
@@ -400,14 +418,115 @@ CREATE TABLE IF NOT EXISTS sessoes (
 	defer st.Close()
 	ctx := context.Background()
 
+	// Ensure no table references a nonexistent "sessoes_old" table after rebuild.
+	rows, err := st.db.QueryContext(ctx, "SELECT name, sql FROM sqlite_master WHERE type = 'table'")
+	if err != nil {
+		t.Fatalf("inspecionar sqlite_master: %v", err)
+	}
+	for rows.Next() {
+		var name, ddl string
+		if err := rows.Scan(&name, &ddl); err != nil {
+			rows.Close()
+			t.Fatalf("scan sqlite_master: %v", err)
+		}
+		if strings.Contains(strings.ToLower(ddl), "sessoes_old") {
+			rows.Close()
+			t.Fatalf("tabela %s ainda referencia sessoes_old: %s", name, ddl)
+		}
+	}
+	rows.Close()
+
 	existing, err := st.ObterSessao(ctx, 1)
 	if err != nil || existing.FetchMethod != "docker" {
 		t.Fatalf("sessão legada não preservada: %+v, err=%v", existing, err)
 	}
+	if pkgs, err := st.ListarPacotes(ctx, 1); err != nil || len(pkgs) != 1 {
+		t.Fatalf("pacotes legados não preservados: %+v, err=%v", pkgs, err)
+	}
+
 	podman := newTestSession()
 	podman.FetchMethod = "podman"
 	if err := st.CreateSessao(ctx, podman); err != nil {
 		t.Fatalf("CreateSessao(podman) após migração: %v", err)
+	}
+	// Writing child rows must succeed with foreign_keys=ON.
+	if err := st.AdicionarPacote(ctx, &core.Pacote{SessaoID: podman.ID, Nome: "curl", Versao: "8.0", Status: core.PacoteBaixado}); err != nil {
+		t.Fatalf("AdicionarPacote após migração: %v", err)
+	}
+	if err := st.AdicionarEvento(ctx, &core.Evento{SessaoID: podman.ID, Tipo: core.EventoDownload, Mensagem: "ok"}); err != nil {
+		t.Fatalf("AdicionarEvento após migração: %v", err)
+	}
+	if err := st.RegistrarEtapa(ctx, &core.EtapaSessao{SessaoID: podman.ID, Etapa: 1, Status: core.EtapaConcluida}); err != nil {
+		t.Fatalf("RegistrarEtapa após migração: %v", err)
+	}
+	if err := st.AdicionarPacoteSolicitado(ctx, &core.PacoteSolicitado{SessaoID: podman.ID, Nome: "curl"}); err != nil {
+		t.Fatalf("AdicionarPacoteSolicitado após migração: %v", err)
+	}
+}
+
+func TestReparoReferenciasSessoesOld(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "broken-v040.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("abrir SQLite: %v", err)
+	}
+	// Simulate a database previously broken by v0.4.0's ALTER TABLE sessoes RENAME TO sessoes_old.
+	brokenSchema := sessoesTable +
+		strings.ReplaceAll(pacotesTable, "REFERENCES sessoes(id)", `REFERENCES "sessoes_old"(id)`) +
+		strings.ReplaceAll(eventosTable, "REFERENCES sessoes(id)", `REFERENCES "sessoes_old"(id)`) +
+		strings.ReplaceAll(etapasTable, "REFERENCES sessoes(id)", `REFERENCES "sessoes_old"(id)`) +
+		strings.ReplaceAll(pacotesSolicitadosTable, "REFERENCES sessoes(id)", `REFERENCES "sessoes_old"(id)`)
+	if _, err := raw.Exec(brokenSchema); err != nil {
+		raw.Close()
+		t.Fatalf("criar schema corrompido simulado: %v", err)
+	}
+	now := formatTime(time.Now().UTC())
+	if _, err := raw.Exec(`INSERT INTO sessoes (id, iniciada_em, so_destino, versao_destino, arch_destino, metodo_fetch, status) VALUES (1, ?, 'ubuntu', '22.04', 'amd64', 'docker', 'concluida')`, now); err != nil {
+		raw.Close()
+		t.Fatalf("inserir sessao: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO pacotes (id, sessao_id, nome, versao, status) VALUES (1, 1, 'vim', '9.0', 'instalado')`); err != nil {
+		raw.Close()
+		t.Fatalf("inserir pacote: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO eventos (id, sessao_id, timestamp, tipo, mensagem) VALUES (1, 1, ?, 'download', 'ok')`, now); err != nil {
+		raw.Close()
+		t.Fatalf("inserir evento: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO etapas_sessao (sessao_id, etapa, nome, status) VALUES (1, 1, 'init', 'concluida')`); err != nil {
+		raw.Close()
+		t.Fatalf("inserir etapa: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO pacotes_solicitados (id, sessao_id, nome, status) VALUES (1, 1, 'vim', 'instalado')`); err != nil {
+		raw.Close()
+		t.Fatalf("inserir solicitado: %v", err)
+	}
+	_ = raw.Close()
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open com reparo automático: %v", err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+
+	if pkgs, err := st.ListarPacotes(ctx, 1); err != nil || len(pkgs) != 1 || pkgs[0].Nome != "vim" {
+		t.Fatalf("pacotes não preservados após reparo: %+v, err=%v", pkgs, err)
+	}
+	if evs, err := st.ListarEventos(ctx, 1); err != nil || len(evs) != 1 {
+		t.Fatalf("eventos não preservados após reparo: %+v, err=%v", evs, err)
+	}
+	if err := st.AdicionarPacote(ctx, &core.Pacote{SessaoID: 1, Nome: "curl", Versao: "8.0", Status: core.PacoteBaixado}); err != nil {
+		t.Fatalf("AdicionarPacote após reparo falhou: %v", err)
+	}
+	if err := st.AdicionarEvento(ctx, &core.Evento{SessaoID: 1, Tipo: core.EventoDownload, Mensagem: "repaired"}); err != nil {
+		t.Fatalf("AdicionarEvento após reparo falhou: %v", err)
+	}
+	if err := st.RegistrarEtapa(ctx, &core.EtapaSessao{SessaoID: 1, Etapa: 2, Status: core.EtapaConcluida}); err != nil {
+		t.Fatalf("RegistrarEtapa após reparo falhou: %v", err)
+	}
+	if err := st.AdicionarPacoteSolicitado(ctx, &core.PacoteSolicitado{SessaoID: 1, Nome: "curl"}); err != nil {
+		t.Fatalf("AdicionarPacoteSolicitado após reparo falhou: %v", err)
 	}
 }
 

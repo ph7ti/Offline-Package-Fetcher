@@ -4,6 +4,22 @@ All notable changes to **Offline Package Fetcher (OPF)** are documented in this
 file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-11-24
+
+SQLite upgrade migration fix, automatic database repair, and full installer/uninstaller database lifecycle support.
+
+### Fixed
+
+- **SQLite `sessoes` migration foreign-key corruption**: `migrateSessoesFetchMethod` and `migratePacotesStatus` now follow SQLite's recommended 12-step table rebuild (`CREATE TABLE <tbl>_new` → copy → `DROP TABLE <tbl>` → `ALTER TABLE <tbl>_new RENAME TO <tbl>` with `PRAGMA foreign_keys = OFF`), preventing SQLite >= 3.26 from rewriting child foreign keys (`pacotes`, `eventos`, `etapas_sessao`, `pacotes_solicitados`) to `REFERENCES "sessoes_old"(id)`.
+- **Automatic self-repair on startup**: `store.Open` now detects any database previously migrated by v0.4.0 containing `sessoes_old` foreign-key references and transparently rebuilds the affected child tables while preserving 100% of historical rows.
+- **Uninstaller database cleanup**:
+  - Windows Full uninstaller (`opf-full.iss`) now prompts during interactive uninstall (or accepts `/REMOVEDATA` in silent mode) to remove `opf.db`, SQLite WAL/SHM/journal sidecars (`-wal`, `-shm`, `-journal`) and empty data directories.
+  - Windows CLI/TUI uninstaller (`opf-uninstaller`) now resolves the database path from `install.json`, `config.json` and `%LocalAppData%\OPF\data\opf.db`, deletes all SQLite sidecar files (`-wal`, `-shm`, `-journal`) with retry, and defaults the interactive data-removal prompt to Yes.
+  - Linux installer (`install.sh`) now installs an `uninstall-opf` script supporting `--remove-data` and interactive database cleanup.
+- **Installer database initialization & reset on install/upgrade**:
+  - Added `opf-cli --init-db` to initialize and migrate the full SQLite schema (all 5 tables, indexes and migrations) on demand.
+  - Windows CLI/TUI (`opf-installer`), Windows Full (`opf-full.iss`), Linux (`install.sh`) and macOS (`postinstall`) installers now initialize and migrate the real SQLite schema instead of creating an empty 0-byte file, and offer an optional database reset (`--reset-db` / `OPF_RESET_DB=1` / Inno Setup task).
+
 ## [0.4.0] - 2026-11-23
 
 Air-gapped offline bundles, corporate SSH ergonomics, proxy & custom CA support, Podman / rootless Docker, package version pinning, ephemeral private repository authentication and saved session profiles.

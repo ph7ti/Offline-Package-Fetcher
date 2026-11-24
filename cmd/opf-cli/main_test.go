@@ -456,6 +456,20 @@ func TestRunVersionFlag(t *testing.T) {
 	}
 }
 
+func TestRunInitDBFlag(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "sub", "opf.db")
+	if err := run([]string{"--init-db", "--db", dbPath}); err != nil {
+		t.Fatalf("--init-db retornou erro: %v", err)
+	}
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("banco não criado: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("banco criado com 0 bytes; schema SQLite não foi inicializado")
+	}
+}
+
 func TestLoadPackageFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "pkgs.txt")

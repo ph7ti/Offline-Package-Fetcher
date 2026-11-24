@@ -1,7 +1,7 @@
 ; OPF Full Windows installer (Inno Setup 6.3+) with GUI wizard.
 ;
 ; Build:
-;   ISCC.exe /DMyArch=amd64 /DAppVersion=0.4.0 ^
+;   ISCC.exe /DMyArch=amd64 /DAppVersion=0.4.1 ^
 ;     /DPayloadRoot=<repo>\dist\installer-payload opf-full.iss
 ;
 ; Four installation types: bundle (GUI+TUI+CLI), GUI only, TUI only, CLI only.
@@ -10,7 +10,7 @@
   #define MyArch "amd64"
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.4.0"
+  #define AppVersion "0.4.1"
 #endif
 #ifndef Priv
   #define Priv "admin"
@@ -76,6 +76,7 @@ Name: "cli"; Description: "Command-line interface (opf-cli)"; Types: bundle cli
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut for OPF"; GroupDescription: "Shortcuts:"; Components: gui
+Name: "resetdb"; Description: "Reset local SQLite database (recreate tables from scratch)"; GroupDescription: "Database:"; Flags: unchecked
 
 [Files]
 Source: "{#PayloadRoot}\{#MyArch}\opf-gui.exe"; DestDir: "{app}"; Components: gui; Flags: ignoreversion
@@ -141,15 +142,64 @@ begin
   RegWriteExpandStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', NewPath);
 end;
 
+procedure RemoveDatabaseFiles(DB: string);
+begin
+  DeleteFile(DB);
+  DeleteFile(DB + '-wal');
+  DeleteFile(DB + '-shm');
+  DeleteFile(DB + '-journal');
+end;
+
+function HasUninstallFlag(Flag: string): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+  begin
+    if CompareText(ParamStr(I), Flag) = 0 then
+    begin
+      Result := True;
+      exit;
+    end;
+  end;
+end;
+
 procedure CreateDatabase();
 var
-  Dir, DB: string;
+  Dir, DB, CLI: string;
+  ResultCode: Integer;
 begin
   Dir := ExpandConstant('{localappdata}\OPF\data');
   ForceDirectories(Dir);
   DB := Dir + '\opf.db';
-  if not FileExists(DB) then
+  if WizardIsTaskSelected('resetdb') then
+    RemoveDatabaseFiles(DB);
+  CLI := ExpandConstant('{app}\opf-cli.exe');
+  if FileExists(CLI) then
+  begin
+    if not Exec(CLI, '--init-db --db "' + DB + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+    begin
+      if not FileExists(DB) then
+        SaveStringToFile(DB, '', False);
+    end;
+  end
+  else if not FileExists(DB) then
+  begin
     SaveStringToFile(DB, '', False);
+  end;
+end;
+
+procedure RemoveLocalDatabase();
+var
+  Dir, ParentDir, DB: string;
+begin
+  Dir := ExpandConstant('{localappdata}\OPF\data');
+  ParentDir := ExpandConstant('{localappdata}\OPF');
+  DB := Dir + '\opf.db';
+  RemoveDatabaseFiles(DB);
+  RemoveDir(Dir);
+  RemoveDir(ParentDir);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -159,7 +209,31 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  DB: string;
 begin
-  if CurUninstallStep = usPostUninstall then
+  if CurUninstallStep = usUninstall then
+  begin
+    DB := ExpandConstant('{localappdata}\OPF\data\opf.db');
+    if FileExists(DB) or FileExists(DB + '-wal') or FileExists(DB + '-shm') then
+    begin
+      if UninstallSilent then
+      begin
+        if HasUninstallFlag('/REMOVEDATA') then
+          RemoveLocalDatabase();
+      end
+      else
+      begin
+        if MsgBox(
+          'Deseja remover também o banco de dados local e o histórico do OPF?' + #13#10 +
+          'Do you also want to remove the local OPF database and session history?' + #13#10 + #13#10 +
+          DB,
+          mbConfirmation, MB_YESNO
+        ) = IDYES then
+          RemoveLocalDatabase();
+      end;
+    end;
+  end
+  else if CurUninstallStep = usPostUninstall then
     RemoveFromUserPath();
 end;

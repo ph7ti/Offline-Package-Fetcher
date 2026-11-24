@@ -74,7 +74,7 @@ for arg in "$@"; do
 	esac
 done
 
-box "Offline Package Fetcher (OPF) - Installer" "Version 0.4.0" "" \
+box "Offline Package Fetcher (OPF) - Installer" "Version 0.4.1" "" \
 	"This wizard installs OPF on your computer." \
 	"You can change the folder and choose what to install."
 
@@ -176,12 +176,54 @@ else
 	echo "        ${BINDIR} is already in PATH."
 fi
 
-echo "  [3/4] Creating the local database"
+echo "  [3/4] Initializing/migrating the local database"
 DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
 DB="${DATA_HOME}/OPF/data/opf.db"
 mkdir -p "$(dirname "${DB}")"
-: >>"${DB}"
+if [[ "${OPF_RESET_DB:-0}" == "1" ]]; then
+	rm -f "${DB}" "${DB}-wal" "${DB}-shm" "${DB}-journal"
+fi
+if [[ -x "${BINDIR}/opf-cli" ]]; then
+	"${BINDIR}/opf-cli" --init-db --db "${DB}" >/dev/null || : >>"${DB}"
+else
+	: >>"${DB}"
+fi
 echo "        ${DB}"
+
+cat >"${BINDIR}/uninstall-opf" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+REMOVE_DATA=0
+SILENT=0
+for arg in "\$@"; do
+	case "\${arg}" in
+		--remove-data) REMOVE_DATA=1 ;;
+		--silent) SILENT=1 ;;
+		--help|-h)
+			echo "Usage: uninstall-opf [--silent] [--remove-data]"
+			exit 0
+			;;
+	esac
+done
+if [[ "\${SILENT}" -eq 0 && "\${REMOVE_DATA}" -eq 0 && -t 0 ]]; then
+	printf 'Also remove the local database and history (%s)? [Y/n]: ' "${DB}"
+	read -r ans || ans="y"
+	case "\${ans:-y}" in
+		y|Y|yes|YES|s|S|sim|SIM) REMOVE_DATA=1 ;;
+	esac
+fi
+rm -f "${BINDIR}/opf-gui" "${BINDIR}/opf-tui" "${BINDIR}/opf-cli" "${BINDIR}/uninstall-opf"
+rm -f "/usr/share/applications/opf.desktop" "\${HOME}/.local/share/applications/opf.desktop"
+rm -f "/usr/share/icons/hicolor/256x256/apps/opf.png" "\${HOME}/.local/share/icons/hicolor/256x256/apps/opf.png"
+if [[ "\${REMOVE_DATA}" -eq 1 ]]; then
+	rm -f "${DB}" "${DB}-wal" "${DB}-shm" "${DB}-journal"
+	rmdir "$(dirname "${DB}")" 2>/dev/null || true
+	rmdir "$(dirname "$(dirname "${DB}")")" 2>/dev/null || true
+	echo "Removed local database: ${DB}"
+fi
+echo "OPF removed."
+EOF
+chmod 0755 "${BINDIR}/uninstall-opf"
 
 if [[ "${SHORTCUT}" -eq 1 ]]; then echo "  [4/4] Shortcut created"; else echo "  [4/4] Shortcut skipped"; fi
 

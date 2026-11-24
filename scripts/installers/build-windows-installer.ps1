@@ -1,7 +1,7 @@
 param(
     [ValidateSet('amd64','arm64')][string]$Arch = 'amd64',
     [string]$PayloadRoot = 'dist\installer-payload',
-    [string]$Version = '0.4.0',
+    [string]$Version = '0.4.1',
     [string]$OutDir = 'dist\installers',
     [ValidateSet('cli')][string]$Edition = 'cli'
 )
@@ -62,7 +62,7 @@ if ($Arch -eq 'amd64' -and $env:OPF_TEST_INSTALLER -eq '1') {
     if ($p.ExitCode -ne 0) { throw "installer test failed: $($p.ExitCode)" }
     if (-not (Test-Path (Join-Path $target 'opf-cli.exe'))) { throw "installer test did not produce opf-cli.exe" }
     if (-not (Test-Path (Join-Path $target 'uninstall-opf.exe'))) { throw "installer test did not produce uninstall-opf.exe" }
-    $u = Start-Process -FilePath (Join-Path $target 'uninstall-opf.exe') -ArgumentList @('--silent') -Wait -PassThru
+    $u = Start-Process -FilePath (Join-Path $target 'uninstall-opf.exe') -ArgumentList @('--silent', '--remove-data') -Wait -PassThru
     if ($u.ExitCode -ne 0) { throw "uninstaller test failed: $($u.ExitCode)" }
     for ($i = 0; $i -lt 30 -and (Test-Path $target); $i++) { Start-Sleep -Milliseconds 200 }
     if (Test-Path $target) { throw "uninstaller test left files in $target" }

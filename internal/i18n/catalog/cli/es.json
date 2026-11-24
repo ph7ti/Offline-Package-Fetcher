@@ -159,5 +159,7 @@
   "OPF_SSH_JUMP_PASSPHRASES tem %d valores para %d pontes": "OPF_SSH_JUMP_PASSPHRASES tiene %d valores para %d saltos",
   "use --ssh-jump-passphrase ou OPF_SSH_JUMP_PASSPHRASES, não ambos": "use --ssh-jump-passphrase o OPF_SSH_JUMP_PASSPHRASES, no ambos",
   "OPF_REPO_AUTH deve ser um objeto JSON mapeando nome do repositório para credenciais": "OPF_REPO_AUTH debe ser un objeto JSON que mapee nombres de repositorio a credenciales",
-  "bundle offline: %s": "paquete offline: %s"
+  "bundle offline: %s": "paquete offline: %s",
+  "inicializa e migra o banco SQLite informado em --db e encerra": "inicializa y migra la base de datos SQLite indicada en --db y finaliza",
+  "banco SQLite inicializado: %s": "base de datos SQLite inicializada: %s"
 }

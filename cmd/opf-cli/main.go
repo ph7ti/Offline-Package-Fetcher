@@ -23,6 +23,7 @@ import (
 	"opf/internal/core"
 	"opf/internal/i18n"
 	"opf/internal/observability"
+	"opf/internal/store"
 	"opf/internal/transfer"
 	"opf/internal/version"
 )
@@ -142,6 +143,7 @@ func run(args []string) error {
 	outDir := fs.String("out", "./opf-output", i18n.T("diretório base de saída"))
 	offlineBundle := fs.String("offline-bundle", "", i18n.T("gera bundle air-gapped .tar.gz com install-offline.sh (use 'auto' ou um caminho)"))
 	dbPath := fs.String("db", "./opf.db", i18n.T("caminho do arquivo SQLite"))
+	initDB := fs.Bool("init-db", false, i18n.T("inicializa e migra o banco SQLite informado em --db e encerra"))
 
 	httpProxy := fs.String("http-proxy", "", i18n.T("proxy HTTP para o contêiner isolado"))
 	httpsProxy := fs.String("https-proxy", "", i18n.T("proxy HTTPS para o contêiner isolado"))
@@ -232,6 +234,25 @@ func run(args []string) error {
 	if *showVersion {
 		info := version.Current()
 		fmt.Printf("opf-cli %s (%s, %s)\n", info.Version, info.Commit, info.ReleaseDate)
+		return nil
+	}
+	if *initDB {
+		targetDB := strings.TrimSpace(*dbPath)
+		if targetDB == "" {
+			var err error
+			targetDB, err = config.DefaultDatabasePath()
+			if err != nil {
+				return err
+			}
+		}
+		st, err := store.Open(targetDB)
+		if err != nil {
+			return err
+		}
+		if err := st.Close(); err != nil {
+			return err
+		}
+		fmt.Println(i18n.T("banco SQLite inicializado: %s", targetDB))
 		return nil
 	}
 	if *listProfiles {
